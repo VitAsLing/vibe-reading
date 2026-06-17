@@ -1,6 +1,5 @@
 import { IconSearch } from "@tabler/icons-react"
 import { useSetAtom } from "jotai"
-import { i18n } from "#imports"
 import vibeReadingLogo from "@/assets/icons/vibe-reading.png"
 import {
   InputGroup,
@@ -14,6 +13,7 @@ import {
   SidebarFooter,
   SidebarHeader,
 } from "@/components/ui/base-ui/sidebar"
+import { i18n } from "@/utils/i18n"
 import { getCommandPaletteShortcutHint } from "@/utils/os"
 import { version } from "../../../../package.json"
 import { commandPaletteOpenAtom } from "../command-palette/atoms"

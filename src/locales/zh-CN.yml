@@ -5,8 +5,8 @@ dataTypes:
   string: 文本
   number: 数字
 languageCombobox:
-  searchLanguages: Search languages...
-  noLanguagesFound: No languages found
+  searchLanguages: 搜索语言...
+  noLanguagesFound: 未找到语言
 popup:
   theme: 主题
   autoLang: 自动检测
@@ -29,7 +29,7 @@ popup:
   aiSmartContextDescription: 结合网页上下文提升翻译效果。需要配置 LLM 翻译服务商。
 errorRecovery:
   title: 应用发生异常
-  description: Recovery mode is active. Refresh the page or reset settings and try again.
+  description: 恢复模式已启用。请刷新页面，或重置设置后重试。
   recoveryTitle: 恢复选项
   refreshPage: 刷新页面
   resetAction: 重置为默认设置
@@ -130,6 +130,11 @@ options:
       testing: 测试中...
   general:
     title: 通用
+    interfaceLanguage:
+      title: 界面语言
+      description: 选择 Vibe Reading 弹窗、设置页和页面内界面使用的语言。
+      english: English
+      simplifiedChinese: 简体中文
     appearance:
       title: 外观
       theme: 主题

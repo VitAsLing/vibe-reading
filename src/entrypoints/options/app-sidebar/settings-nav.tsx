@@ -1,6 +1,5 @@
 import { Icon } from "@iconify/react"
 import { Link, useLocation } from "react-router"
-import { i18n } from "#imports"
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -9,6 +8,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/base-ui/sidebar"
+import { i18n } from "@/utils/i18n"
 
 export function SettingsNav() {
   const { pathname } = useLocation()

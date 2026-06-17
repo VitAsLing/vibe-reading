@@ -130,6 +130,11 @@ options:
       testing: Testing...
   general:
     title: General
+    interfaceLanguage:
+      title: Interface Language
+      description: Choose the language used by Vibe Reading's popup, settings, and in-page UI.
+      english: English
+      simplifiedChinese: Simplified Chinese
     appearance:
       title: Appearance
       theme: Theme
