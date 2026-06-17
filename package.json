@@ -1,7 +1,7 @@
 {
   "name": "@vibe-reading/extension",
   "type": "module",
-  "version": "1.34.0",
+  "version": "1.34.1",
   "private": true,
   "packageManager": "pnpm@10.33.4",
   "description": "Vibe Reading browser extension for language learning",
