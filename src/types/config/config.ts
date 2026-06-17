@@ -5,6 +5,9 @@ import { FEATURE_PROVIDER_DEFS } from "@/utils/constants/feature-providers"
 import { providersConfigSchema } from "./provider"
 import { translateConfigSchema } from "./translate"
 
+export const uiLocaleSchema = z.enum(["en", "zh-CN"])
+export type UILocale = z.infer<typeof uiLocaleSchema>
+
 // Language schema
 const languageSchema = z.object({
   sourceCode: langCodeISO6393Schema.or(z.literal("auto")),
@@ -14,6 +17,7 @@ const languageSchema = z.object({
 
 // Complete config schema
 export const configSchema = z.object({
+  uiLocale: uiLocaleSchema.default("en"),
   language: languageSchema,
   providersConfig: providersConfigSchema,
   translate: translateConfigSchema,

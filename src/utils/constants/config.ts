@@ -12,6 +12,7 @@ export const DEFAULT_DETECTED_CODE = "eng" as const
 export const CONFIG_SCHEMA_VERSION = 1
 
 export const DEFAULT_CONFIG: Config = {
+  uiLocale: "en",
   language: {
     sourceCode: "auto",
     targetCode: "cmn",

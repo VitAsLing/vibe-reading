@@ -1,8 +1,8 @@
 import type { APIProviderConfig } from "@/types/config/provider"
 
 import { useStore } from "@tanstack/react-form"
-import { i18n } from "#imports"
 import { isNonCustomLLMProvider } from "@/types/config/provider"
+import { i18n } from "@/utils/i18n"
 import { withForm } from "./form"
 
 export const BaseURLField = withForm({

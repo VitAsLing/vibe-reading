@@ -1,6 +1,8 @@
 import "@/utils/zod-config"
 import { defineContentScript } from "#imports"
 import { getLocalConfig } from "@/utils/config/storage"
+import { DEFAULT_CONFIG } from "@/utils/constants/config"
+import { loadUiLocaleMessages } from "@/utils/i18n"
 
 declare global {
   interface Window {
@@ -18,6 +20,7 @@ export default defineContentScript({
     window.__READ_FROG_HOST_INJECTED__ = true
 
     const initialConfig = await getLocalConfig()
+    await loadUiLocaleMessages(initialConfig?.uiLocale ?? DEFAULT_CONFIG.uiLocale, { applyDocumentLang: false })
 
     const { bootstrapHostContent } = await import("./runtime")
     await bootstrapHostContent(ctx, initialConfig)

@@ -1,4 +1,4 @@
-import { i18n } from "#imports"
+import { i18n } from "@/utils/i18n"
 import { ConfigCard } from "../../components/config-card"
 
 export function AboutCard() {

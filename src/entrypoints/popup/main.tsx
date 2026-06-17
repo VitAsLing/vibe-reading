@@ -14,6 +14,7 @@ import { configAtom } from "@/utils/atoms/config"
 import { baseThemeModeAtom } from "@/utils/atoms/theme"
 import { getLocalConfig } from "@/utils/config/storage"
 import { DEFAULT_CONFIG } from "@/utils/constants/config"
+import { loadUiLocaleMessages } from "@/utils/i18n"
 import { sendMessage } from "@/utils/message"
 import { renderPersistentReactRoot } from "@/utils/react-root"
 import { queryClient } from "@/utils/tanstack-query"
@@ -53,6 +54,7 @@ async function initApp() {
     }),
   ])
   const config = configValue ?? DEFAULT_CONFIG
+  await loadUiLocaleMessages(config.uiLocale)
 
   const tabId = activeTab[0].id
 

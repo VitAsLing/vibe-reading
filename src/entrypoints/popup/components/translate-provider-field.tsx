@@ -1,11 +1,11 @@
 import { useAtom, useAtomValue } from "jotai"
 import { useMemo } from "react"
-import { i18n } from "#imports"
 import { HelpTooltip } from "@/components/help-tooltip"
 import ProviderSelector from "@/components/llm-providers/provider-selector"
 import { isTranslateProvider } from "@/types/config/provider"
 import { configFieldsAtomMap } from "@/utils/atoms/config"
 import { filterEnabledProvidersConfig } from "@/utils/config/helpers"
+import { i18n } from "@/utils/i18n"
 
 export default function TranslateProviderField() {
   const [translateConfig, setTranslateConfig] = useAtom(configFieldsAtomMap.translate)
