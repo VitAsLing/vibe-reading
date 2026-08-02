@@ -28,6 +28,13 @@ describe("getProviderOptions", () => {
     ]))
   })
 
+  it("exposes only the supported DeepSeek V4 model ids", () => {
+    expect(LLM_PROVIDER_MODELS.deepseek).toEqual([
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+    ])
+  })
+
   it("returns documented GPT-5 reasoning defaults", () => {
     expect(getProviderOptions("gpt-5.4-pro", "openai").openai?.reasoningEffort).toBe("medium")
     expect(getProviderOptions("GPT-5.4-Pro", "openai").openai?.reasoningEffort).toBe("medium")
@@ -47,7 +54,6 @@ describe("getProviderOptions", () => {
   })
 
   it("returns DeepSeek thinking defaults", () => {
-    expect(getProviderOptions("deepseek-reasoner", "deepseek").deepseek?.thinking).toEqual({ type: "disabled" })
     expect(getProviderOptions("deepseek-v4-flash", "deepseek").deepseek?.thinking).toEqual({ type: "disabled" })
     expect(getProviderOptions("DeepSeek-V4-Flash", "deepseek").deepseek?.thinking).toEqual({ type: "disabled" })
     expect(getProviderOptions("deepseek-v4-pro", "deepseek").deepseek?.thinking).toEqual({ type: "disabled" })
