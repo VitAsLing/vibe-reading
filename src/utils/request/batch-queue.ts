@@ -1,5 +1,4 @@
 import { batchQueueConfigSchema } from "@/types/config/translate"
-import { getRandomUUID } from "@/utils/crypto-polyfill"
 
 export class BatchCountMismatchError extends Error {
   constructor(expected: number, got: number, results: unknown[]) {
@@ -18,7 +17,6 @@ interface BatchTask<T, R> {
 }
 
 interface PendingBatch<T, R> {
-  id: string
   tasks: BatchTask<T, R>[]
   totalCharacters: number
   createdAt: number
@@ -91,7 +89,8 @@ export class BatchQueue<T, R> {
     const batchesToFlush: string[] = []
 
     for (const [batchKey, batch] of this.pendingBatchMap.entries()) {
-      const shouldFlushNow = this.shouldFlushBatch(batch)
+      const shouldFlushNow = batch.tasks.length >= this.maxItemsPerBatch
+        || batch.totalCharacters >= this.maxCharactersPerBatch
       const isTimedOut = now >= batch.createdAt + this.batchDelay
 
       if (shouldFlushNow || isTimedOut) {
@@ -115,39 +114,20 @@ export class BatchQueue<T, R> {
     const characters = this.getCharacters(task.data)
     const existingBatch = this.pendingBatchMap.get(batchKey)
 
+    if (existingBatch && existingBatch.totalCharacters + characters <= this.maxCharactersPerBatch) {
+      existingBatch.tasks.push(task)
+      existingBatch.totalCharacters += characters
+      return
+    }
+
     if (existingBatch) {
-      if (existingBatch.totalCharacters + characters <= this.maxCharactersPerBatch) {
-        existingBatch.tasks.push(task)
-        existingBatch.totalCharacters += characters
-      }
-      else {
-        this.flushPendingBatchByKey(batchKey)
-        this.createNewPendingBatch(task, batchKey)
-      }
+      this.flushPendingBatchByKey(batchKey)
     }
-    else {
-      this.createNewPendingBatch(task, batchKey)
-    }
-  }
-
-  private shouldFlushBatch(batch: PendingBatch<T, R>): boolean {
-    return (
-      batch.tasks.length >= this.maxItemsPerBatch
-      || batch.totalCharacters >= this.maxCharactersPerBatch
-    )
-  }
-
-  private createNewPendingBatch(task: BatchTask<T, R>, batchKey: string) {
-    const batchId = getRandomUUID()
-
-    const pendingBatch: PendingBatch<T, R> = {
-      id: batchId,
+    this.pendingBatchMap.set(batchKey, {
       tasks: [task],
-      totalCharacters: this.getCharacters(task.data),
+      totalCharacters: characters,
       createdAt: Date.now(),
-    }
-
-    this.pendingBatchMap.set(batchKey, pendingBatch)
+    })
   }
 
   private flushPendingBatchByKey(batchKey: string) {
