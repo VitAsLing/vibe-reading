@@ -31,10 +31,13 @@ Vibe Reading 刻意保持小而专注：**只有阅读功能**。
 
 ```bash
 pnpm install
+pnpm lint
 pnpm test
 pnpm type-check
 pnpm build
 ```
+
+pre-push hook 直接通过 pnpm 运行 lint、类型检查和测试，不使用任务缓存。
 
 ## 授权与致谢
 

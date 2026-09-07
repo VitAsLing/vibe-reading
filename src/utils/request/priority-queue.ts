@@ -1,13 +1,4 @@
-interface PriorityQueue<T> {
-  push: (item: T, priority: number) => void
-  peek: () => T | undefined
-  pop: () => T | undefined
-  size: () => number
-  isEmpty: () => boolean
-  clear: () => void
-}
-
-export class BinaryHeapPQ<T> implements PriorityQueue<T> {
+export class BinaryHeapPQ<T> {
   private heap: { key: number, value: T }[] = []
 
   constructor(private readonly compare = (a: number, b: number) => a - b) {}

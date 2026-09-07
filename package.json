@@ -1,7 +1,7 @@
 {
   "name": "@vibe-reading/extension",
   "type": "module",
-  "version": "1.34.2",
+  "version": "1.34.3",
   "private": true,
   "packageManager": "pnpm@10.33.4",
   "description": "Vibe Reading browser extension for language learning",
@@ -100,7 +100,6 @@
     "husky": "^9.1.7",
     "jsdom": "^29.1.1",
     "lint-staged": "^17.0.7",
-    "nx": "^22.7.5",
     "postcss": "^8.5.15",
     "postcss-rem-to-responsive-pixel": "^7.0.4",
     "postcss-value-parser": "^4.2.0",
@@ -116,46 +115,6 @@
       "name": "node",
       "version": ">=22.0.0",
       "onFail": "download"
-    }
-  },
-  "nx": {
-    "targets": {
-      "build": {
-        "executor": "nx:run-commands",
-        "options": {
-          "command": "wxt build"
-        }
-      },
-      "build:firefox": {
-        "executor": "nx:run-commands",
-        "options": {
-          "command": "wxt build -b firefox"
-        }
-      },
-      "test": {
-        "executor": "nx:run-commands",
-        "options": {
-          "command": "vitest run"
-        }
-      },
-      "test:cov": {
-        "executor": "nx:run-commands",
-        "options": {
-          "command": "vitest run --coverage"
-        }
-      },
-      "lint": {
-        "executor": "nx:run-commands",
-        "options": {
-          "command": "eslint"
-        }
-      },
-      "type-check": {
-        "executor": "nx:run-commands",
-        "options": {
-          "command": "tsc --noEmit"
-        }
-      }
     }
   }
 }

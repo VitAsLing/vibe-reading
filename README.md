@@ -60,10 +60,13 @@ The result is deliberately simple: **Vibe Reading is for reading.**
 
 ```bash
 pnpm install
+pnpm lint
 pnpm test
 pnpm type-check
 pnpm build
 ```
+
+The pre-push hook runs lint, type checking, and tests directly through pnpm, without a task cache.
 
 ## License And Attribution
 

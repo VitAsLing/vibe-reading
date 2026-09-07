@@ -271,6 +271,25 @@ describe("requestQueue – bucket refill while idle", () => {
 
 // 8. Timeout handling
 describe("requestQueue – timeout handling", () => {
+  it.each([false, true])("clears the timeout after task settlement (failure: %s)", async (fails) => {
+    vi.useFakeTimers()
+    const q = new RequestQueue({ ...baseConfig, maxRetries: 0 })
+    const error = new Error("request failed")
+    const promise = q.enqueue(
+      () => fails ? Promise.reject(error) : Promise.resolve("done"),
+      Date.now(),
+      "settled",
+    )
+
+    if (fails) {
+      await expect(promise).rejects.toBe(error)
+    }
+    else {
+      await expect(promise).resolves.toBe("done")
+    }
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it("rejects task when it exceeds timeout", async () => {
     vi.useFakeTimers()
     const q = new RequestQueue({

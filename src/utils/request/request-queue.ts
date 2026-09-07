@@ -5,19 +5,17 @@ import { getRandomUUID } from "@/utils/crypto-polyfill"
 import { BinaryHeapPQ } from "./priority-queue"
 import { defaultRequestRetryPolicy } from "./retry-policy"
 
-export interface RequestTask {
+interface RequestTask {
+  hash: string
   id: string
   thunk: () => Promise<any>
   promise: Promise<any>
   resolve: (value: any) => void
   reject: (error: any) => void
   scheduleAt: number
-  createdAt: number
   retryCount: number
   drained: boolean
 }
-
-type QueuedRequestTask = RequestTask & { hash: string }
 
 export interface QueueOptions {
   rate: number // tokens/sec
@@ -29,9 +27,9 @@ export interface QueueOptions {
 }
 
 export class RequestQueue {
-  private waitingQueue: BinaryHeapPQ<QueuedRequestTask>
-  private waitingTasks = new Map<string, QueuedRequestTask>()
-  private executingTasks = new Map<string, QueuedRequestTask>()
+  private waitingQueue: BinaryHeapPQ<RequestTask>
+  private waitingTasks = new Map<string, RequestTask>()
+  private executingTasks = new Map<string, RequestTask>()
   private nextScheduleTimer: NodeJS.Timeout | null = null
   private retryPolicy: RequestRetryPolicy
 
@@ -40,17 +38,15 @@ export class RequestQueue {
   private lastRefill: number
 
   constructor(private options: QueueOptions) {
-    this.options = options
     this.retryPolicy = options.retryPolicy ?? defaultRequestRetryPolicy
     this.bucketTokens = options.capacity
     this.lastRefill = Date.now()
-    this.waitingQueue = new BinaryHeapPQ<QueuedRequestTask>()
+    this.waitingQueue = new BinaryHeapPQ<RequestTask>()
   }
 
   enqueue<T>(thunk: () => Promise<T>, scheduleAt: number, hash: string): Promise<T> {
-    const duplicateTask = this.duplicateTask(hash)
+    const duplicateTask = this.waitingTasks.get(hash) ?? this.executingTasks.get(hash)
     if (duplicateTask) {
-      // console.info(`🔄 Found duplicate task for hash: ${hash}, returning existing promise`)
       return duplicateTask.promise
     }
 
@@ -61,7 +57,7 @@ export class RequestQueue {
       reject = rej
     })
 
-    const task: QueuedRequestTask = {
+    const task: RequestTask = {
       id: getRandomUUID(),
       hash,
       thunk,
@@ -69,15 +65,12 @@ export class RequestQueue {
       resolve,
       reject,
       scheduleAt,
-      createdAt: Date.now(),
       retryCount: 0,
       drained: false,
     }
 
     this.waitingTasks.set(hash, task)
     this.waitingQueue.push(task, scheduleAt)
-
-    // console.info(`✅ Task ${task.id} added to queue. Queue size: ${this.waitingQueue.size()}, waiting: ${this.waitingTasks.size}, executing: ${this.executingTasks.size}`)
 
     this.schedule()
     return promise
@@ -139,16 +132,13 @@ export class RequestQueue {
     }
   }
 
-  private async executeTask(task: QueuedRequestTask) {
-    // console.info(`🏃 Starting execution of task ${task.id} (attempt ${task.retryCount + 1}) at ${Date.now()}`)
-
+  private async executeTask(task: RequestTask) {
     let timeoutId: NodeJS.Timeout | null = null
 
     try {
       // Create a timeout promise
       const timeoutPromise = new Promise((_, reject) => {
         timeoutId = setTimeout(() => {
-          // console.info(`⏰ Task ${task.id} timed out after ${this.options.timeoutMs}ms`)
           reject(new Error(`Task ${task.id} timed out after ${this.options.timeoutMs}ms`))
         }, this.options.timeoutMs)
       })
@@ -159,26 +149,11 @@ export class RequestQueue {
         timeoutPromise,
       ])
 
-      // Clear timeout if task completed successfully
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-        timeoutId = null
-      }
-
-      // console.info(`✅ Task ${task.id} completed successfully at ${Date.now()}`)
       if (!task.drained) {
         task.resolve(result)
       }
     }
     catch (error) {
-      // Clear timeout if it hasn't fired yet
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-        timeoutId = null
-      }
-
-      // console.error(`❌ Task ${task.id} failed at ${Date.now()}:`, error)
-
       if (task.drained) {
         return
       }
@@ -198,8 +173,6 @@ export class RequestQueue {
         const retryAt = now + decision.delayMs
         task.scheduleAt = retryAt
 
-        // console.warn(`🔄 Retrying task ${task.id} (attempt ${task.retryCount}/${this.options.maxRetries}) after ${Math.round(decision.delayMs)}ms`)
-
         // Move task back to waiting queue for retry
         this.waitingTasks.set(task.hash, task)
         this.waitingQueue.push(task, retryAt)
@@ -207,7 +180,6 @@ export class RequestQueue {
       }
       else {
         // Max retries exceeded, reject the promise
-        // console.error(`💀 Task ${task.id} failed permanently after ${this.options.maxRetries} retries`)
         if (decision.failQueue) {
           this.failCurrentBacklog(error)
         }
@@ -229,14 +201,6 @@ export class RequestQueue {
     }
   }
 
-  private duplicateTask(hash: string) {
-    const duplicateTask = this.waitingTasks.get(hash) ?? this.executingTasks.get(hash)
-    if (duplicateTask) {
-      return duplicateTask
-    }
-    return undefined
-  }
-
   private failCurrentBacklog(error: unknown) {
     if (this.nextScheduleTimer) {
       clearTimeout(this.nextScheduleTimer)
@@ -255,7 +219,7 @@ export class RequestQueue {
     this.executingTasks.clear()
   }
 
-  private rejectDrainedTask(task: QueuedRequestTask, error: unknown) {
+  private rejectDrainedTask(task: RequestTask, error: unknown) {
     if (task.drained) {
       return
     }
@@ -269,10 +233,6 @@ export class RequestQueue {
     const timeSinceLastRefill = now - this.lastRefill
     const tokensToAdd = (timeSinceLastRefill / 1000) * this.options.rate
     this.bucketTokens = Math.min(this.bucketTokens + tokensToAdd, this.options.capacity)
-
-    // if (tokensToAdd > 0.01) { // Only log if meaningful tokens were added
-    //   console.log(`🪣 Token bucket refilled: ${oldTokens.toFixed(2)} -> ${this.bucketTokens.toFixed(2)} (+${tokensToAdd.toFixed(2)}) after ${timeSinceLastRefill}ms`)
-    // }
 
     this.lastRefill = now
   }
