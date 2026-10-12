@@ -1,7 +1,7 @@
 import { MARK_ATTRIBUTES } from "../../../constants/dom-labels"
 
 // State management for translation operations
-export const translatingNodes = new WeakSet<ChildNode>()
+export const translatingNodes = new WeakMap<ChildNode, symbol>()
 export const originalContentMap = new Map<Element, string>()
 
 // Pre-compiled regex for better performance - removes all mark attributes

@@ -1,6 +1,7 @@
 import type { ContentScriptContext } from "#imports"
 import type { Config } from "@/types/config/config"
 import { DEFAULT_CONFIG } from "@/utils/constants/config"
+import { isContentScriptActive, reportContentScriptError, runContentScriptTask } from "@/utils/content-script/lifecycle"
 import { detectPageLanguageLightweight } from "@/utils/content/page-language"
 import { ensurePresetStyles } from "@/utils/host/translate/ui/style-injector"
 import { logger } from "@/utils/logger"
@@ -13,105 +14,126 @@ import { registerNodeTranslationTriggers } from "./translation-control/node-tran
 import { PageTranslationManager } from "./translation-control/page-translation"
 
 export async function bootstrapHostContent(ctx: ContentScriptContext, initialConfig: Config | null) {
-  ensurePresetStyles(document)
-
-  const cleanupUrlListener = setupUrlChangeListener()
-
-  const removeHostToast = window === window.top ? mountHostToast() : () => {}
-
-  const teardownNodeTranslation = registerNodeTranslationTriggers()
-
-  const preloadConfig = initialConfig?.translate.page.preload ?? DEFAULT_CONFIG.translate.page.preload
-  const manager = new PageTranslationManager({
-    root: null,
-    rootMargin: `${preloadConfig.margin}px`,
-    threshold: preloadConfig.threshold,
-  })
-
-  const cleanupPageTranslationTriggers = manager.registerPageTranslationTriggers()
-
-  const cleanupTranslationShortcut = await bindTranslationShortcutKey(manager)
-
-  const detectAndReportPageLanguage = async (url: string) => {
-    const { detectedCodeOrUnd } = await detectPageLanguageLightweight()
-    void sendMessage("reportDetectedPageLanguage", { url, detectedCodeOrUnd })
+  const cleanups: Array<() => void> = []
+  let disposed = false
+  const addCleanup = (cleanup: () => void) => {
+    if (disposed)
+      cleanup()
+    else
+      cleanups.push(cleanup)
   }
-
-  // For late-loading iframes: check if translation is already enabled for this tab
-  let translationEnabled = false
-  try {
-    translationEnabled = await sendMessage("getEnablePageTranslationFromContentScript", undefined)
-  }
-  catch (error) {
-    // Extension context may be invalidated during update, proceed without auto-start
-    logger.error("Failed to check translation state:", error)
-  }
-  if (translationEnabled) {
-    void manager.start()
-  }
-
-  const handleUrlChange = async (from: string, to: string) => {
-    if (from !== to) {
-      logger.info("URL changed from", from, "to", to)
-      if (manager.isActive) {
-        if (areSamePageTranslationOrigin(from, to)) {
-          await manager.restart()
-        }
-        else {
-          manager.stop()
-        }
+  const dispose = () => {
+    if (disposed)
+      return
+    disposed = true
+    for (const cleanup of cleanups.splice(0).reverse()) {
+      try {
+        cleanup()
       }
-      // Only the top frame should detect and set language to avoid race conditions from iframes
-      if (window === window.top) {
-        await detectAndReportPageLanguage(to)
+      catch (error) {
+        reportContentScriptError("Failed to clean up host content:", error)
       }
     }
   }
+  addCleanup(ctx.onInvalidated(dispose))
 
-  const handleExtensionUrlChange = (e: any) => {
-    const { from, to } = e.detail
-    void handleUrlChange(from, to)
-  }
-  window.addEventListener("extension:URLChange", handleExtensionUrlChange)
-
-  // Listen for translation state changes from background
-  const cleanupTranslationStateListener = onMessage("askManagerToTogglePageTranslation", (msg) => {
-    const { enabled } = msg.data
-    if (enabled === manager.isActive)
+  try {
+    if (!isContentScriptActive())
       return
-    enabled ? void manager.start() : manager.stop()
-  })
+    ensurePresetStyles(document)
+    addCleanup(setupUrlChangeListener())
+    if (window === window.top)
+      addCleanup(mountHostToast())
+    addCleanup(registerNodeTranslationTriggers())
 
-  const cleanupFrameTranslationStateListener = window === window.top
-    ? () => {}
-    : onMessage("notifyTranslationStateChanged", (msg) => {
-        const { enabled } = msg.data
-        if (enabled === manager.isActive)
-          return
-        enabled ? void manager.start() : manager.stop()
-      })
+    const preloadConfig = initialConfig?.translate.page.preload ?? DEFAULT_CONFIG.translate.page.preload
+    const manager = new PageTranslationManager({
+      root: null,
+      rootMargin: `${preloadConfig.margin}px`,
+      threshold: preloadConfig.threshold,
+    })
+    addCleanup(() => manager.dispose())
+    addCleanup(manager.registerPageTranslationTriggers())
+    addCleanup(await bindTranslationShortcutKey(manager))
+    if (!isContentScriptActive())
+      return
 
-  const cleanupDetectedLanguageRefreshListener = window === window.top
-    ? onMessage("refreshDetectedPageLanguage", () => {
-        void detectAndReportPageLanguage(window.location.href)
-      })
-    : () => {}
+    let languageDetectionVersion = 0
+    const detectAndReportPageLanguage = async (url: string) => {
+      if (!isContentScriptActive())
+        return
 
-  ctx.onInvalidated(() => {
-    removeHostToast()
-    cleanupUrlListener()
-    teardownNodeTranslation()
-    cleanupPageTranslationTriggers()
-    cleanupTranslationShortcut()
-    cleanupTranslationStateListener()
-    cleanupFrameTranslationStateListener()
-    cleanupDetectedLanguageRefreshListener()
-    window.removeEventListener("extension:URLChange", handleExtensionUrlChange)
-    window.__READ_FROG_HOST_INJECTED__ = false
-  })
+      // Let navigation handlers finish updating the title and body before sampling.
+      await Promise.resolve()
+      if (!isContentScriptActive() || window.location.href !== url)
+        return
 
-  // Only the top frame should detect and set language to avoid race conditions from iframes
-  if (window === window.top) {
-    await detectAndReportPageLanguage(window.location.href)
+      const version = ++languageDetectionVersion
+      const { detectedCodeOrUnd } = await detectPageLanguageLightweight()
+      if (isContentScriptActive() && version === languageDetectionVersion && window.location.href === url) {
+        await sendMessage("reportDetectedPageLanguage", { url, detectedCodeOrUnd })
+      }
+    }
+
+    // For late-loading iframes: check if translation is already enabled for this tab.
+    let translationEnabled = false
+    try {
+      translationEnabled = await sendMessage("getEnablePageTranslationFromContentScript", undefined)
+    }
+    catch (error) {
+      reportContentScriptError("Failed to check translation state:", error)
+    }
+    if (!isContentScriptActive())
+      return
+    if (translationEnabled) {
+      runContentScriptTask(() => manager.start(), "Failed to start page translation:")
+    }
+
+    const handleUrlChange = async (from: string, to: string) => {
+      if (from !== to) {
+        logger.info("URL changed from", from, "to", to)
+        if (manager.isActive) {
+          if (areSamePageTranslationOrigin(from, to)) {
+            await manager.restart()
+          }
+          else {
+            manager.stop()
+          }
+        }
+        if (window === window.top) {
+          await detectAndReportPageLanguage(to)
+        }
+      }
+    }
+
+    const handleExtensionUrlChange = (e: any) => {
+      const { from, to } = e.detail
+      runContentScriptTask(() => handleUrlChange(from, to), "Failed to handle page navigation:")
+    }
+    window.addEventListener("extension:URLChange", handleExtensionUrlChange)
+    addCleanup(() => window.removeEventListener("extension:URLChange", handleExtensionUrlChange))
+
+    const toggleTranslation = (enabled: boolean) => {
+      if (!isContentScriptActive() || enabled === manager.isActive)
+        return
+      if (enabled)
+        runContentScriptTask(() => manager.start(), "Failed to start page translation:")
+      else
+        manager.stop()
+    }
+    addCleanup(onMessage("askManagerToTogglePageTranslation", msg => toggleTranslation(msg.data.enabled)))
+    if (window !== window.top) {
+      addCleanup(onMessage("notifyTranslationStateChanged", msg => toggleTranslation(msg.data.enabled)))
+    }
+    else {
+      addCleanup(onMessage("refreshDetectedPageLanguage", () => {
+        runContentScriptTask(() => detectAndReportPageLanguage(window.location.href), "Failed to refresh page language:")
+      }))
+      await detectAndReportPageLanguage(window.location.href)
+    }
+  }
+  catch (error) {
+    dispose()
+    throw error
   }
 }

@@ -4,6 +4,7 @@ import type { Config } from "@/types/config/config"
 import type { LLMProviderConfig } from "@/types/config/provider"
 import { isLLMProviderConfig } from "@/types/config/provider"
 import { getLocalConfig } from "@/utils/config/storage"
+import { isContentScriptActive, isContentScriptInvalidationError } from "@/utils/content-script/lifecycle"
 import { logger } from "@/utils/logger"
 import { sendMessage } from "@/utils/message"
 import { getLanguageDetectionSystemPrompt, parseDetectedLanguageCode } from "@/utils/prompts/language-detection"
@@ -96,6 +97,9 @@ export async function detectLanguageWithLLM(
 ): Promise<LangCodeISO6393 | "und" | null> {
   const MAX_ATTEMPTS = 3 // 1 original + 2 retries
 
+  if (!isContentScriptActive())
+    return null
+
   if (!text.trim()) {
     logger.warn("No text provided for language detection")
     return null
@@ -107,6 +111,8 @@ export async function detectLanguageWithLLM(
   if (!config) {
     try {
       const globalConfig = await getLocalConfig()
+      if (!isContentScriptActive())
+        return null
       if (!globalConfig) {
         logger.warn("No config found for language detection")
         return null
@@ -119,6 +125,8 @@ export async function detectLanguageWithLLM(
       config = globalProvider
     }
     catch (error) {
+      if (isContentScriptInvalidationError(error))
+        return null
       logger.error("Failed to get global config for language detection:", error)
       return null
     }
@@ -138,8 +146,12 @@ export async function detectLanguageWithLLM(
     }
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      if (!isContentScriptActive())
+        return null
       try {
         const response = await sendMessage("backgroundGenerateText", payload)
+        if (!isContentScriptActive())
+          return null
         const detectedCode = parseDetectedLanguageCode(response.text)
 
         if (detectedCode) {
@@ -151,6 +163,8 @@ export async function detectLanguageWithLLM(
         }
       }
       catch (error) {
+        if (isContentScriptInvalidationError(error))
+          return null
         logger.error(`LLM language detection attempt ${attempt}/${MAX_ATTEMPTS} failed:`, error)
       }
 

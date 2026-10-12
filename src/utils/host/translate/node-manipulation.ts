@@ -1,5 +1,6 @@
 import type { Config } from "@/types/config/config"
 import type { Point } from "@/types/dom"
+import { isContentScriptActive } from "@/utils/content-script/lifecycle"
 import { getRandomUUID } from "@/utils/crypto-polyfill"
 import { isHTMLElement } from "../dom/filter"
 import { findNearestAncestorBlockNodeAt } from "../dom/find"
@@ -14,6 +15,8 @@ export { removeAllTranslatedWrapperNodes } from "./dom/translation-cleanup"
 
 // High-level orchestration function
 export async function removeOrShowNodeTranslation(point: Point, config: Config): Promise<boolean> {
+  if (!isContentScriptActive())
+    return false
   const node = findNearestAncestorBlockNodeAt(point)
 
   if (!node || !isHTMLElement(node))
@@ -30,5 +33,5 @@ export async function removeOrShowNodeTranslation(point: Point, config: Config):
   const id = getRandomUUID()
   walkAndLabelElement(node, id, config)
   await translateWalkedElement(node, id, config, true)
-  return true
+  return isContentScriptActive()
 }

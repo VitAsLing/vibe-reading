@@ -3,7 +3,6 @@ import { browser, defineBackground } from "#imports"
 import { logger } from "@/utils/logger"
 import { onMessage } from "@/utils/message"
 import { openOptionsPage } from "@/utils/navigation"
-import { ensureInitializedConfig } from "./config"
 import { cleanupAllSummaryCache, cleanupAllTranslationCache, setUpDatabaseCleanup } from "./db-cleanup"
 import { setupIframeInjection } from "./iframe-injection"
 import { setupLLMGenerateTextMessageHandlers } from "./llm-generate-text"
@@ -15,14 +14,6 @@ export default defineBackground({
   type: "module",
   main: () => {
     logger.info("Hello background!", { id: browser.runtime.id })
-
-    browser.runtime.onInstalled.addListener(async (details) => {
-      await ensureInitializedConfig()
-
-      if (details.reason === "install") {
-        logger.info("[Background] Extension installed")
-      }
-    })
 
     onMessage("openOptionsPage", async (message) => {
       logger.info("openOptionsPage", message.data)
@@ -36,7 +27,7 @@ export default defineBackground({
 
     translationMessage()
 
-    void setUpWebPageTranslationQueue()
+    setUpWebPageTranslationQueue()
     void setUpDatabaseCleanup()
 
     proxyFetch()

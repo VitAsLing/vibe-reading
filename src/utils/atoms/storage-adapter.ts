@@ -1,5 +1,6 @@
 import type { ZodSchema } from "zod"
 import { storage } from "#imports"
+import { isContentScriptActive, isContentScriptInvalidationError } from "@/utils/content-script/lifecycle"
 import { isNonNullish } from "@/utils/utils"
 
 export const storageAdapter = {
@@ -26,10 +27,23 @@ export const storageAdapter = {
     await storage.setMeta(`local:${key}`, meta)
   },
   watch<T>(key: string, callback: (newValue: T) => void) {
-    const unwatch = storage.watch<T>(`local:${key}`, (newValue) => {
-      if (isNonNullish(newValue))
-        callback(newValue)
-    })
-    return unwatch
+    if (!isContentScriptActive())
+      return () => {}
+    try {
+      const unwatch = storage.watch<T>(`local:${key}`, (newValue) => {
+        if (isContentScriptActive() && isNonNullish(newValue))
+          callback(newValue)
+      })
+      return () => {
+        if (isContentScriptActive()) {
+          unwatch()
+        }
+      }
+    }
+    catch (error) {
+      if (!isContentScriptInvalidationError(error))
+        throw error
+      return () => {}
+    }
   },
 }

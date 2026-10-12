@@ -2,6 +2,7 @@ import type { Hotkey } from "@tanstack/hotkeys"
 import type { PageTranslationManager } from "./page-translation"
 import { HotkeyManager } from "@tanstack/hotkeys"
 import { getLocalConfig } from "@/utils/config/storage"
+import { isContentScriptActive, runContentScriptTask } from "@/utils/content-script/lifecycle"
 import { isPageTranslationShortcutEmpty, isValidConfiguredPageTranslationShortcut } from "@/utils/page-translation-shortcut"
 
 /**
@@ -9,8 +10,10 @@ import { isPageTranslationShortcutEmpty, isValidConfiguredPageTranslationShortcu
  * Uses sync cached config inside the hotkey callback to avoid async overhead.
  */
 export async function bindTranslationShortcutKey(pageTranslationManager: PageTranslationManager) {
+  if (!isContentScriptActive())
+    return () => {}
   const config = await getLocalConfig()
-  if (!config || isPageTranslationShortcutEmpty(config.translate.page.shortcut)) {
+  if (!isContentScriptActive() || !config || isPageTranslationShortcutEmpty(config.translate.page.shortcut)) {
     return () => {}
   }
 
@@ -22,11 +25,13 @@ export async function bindTranslationShortcutKey(pageTranslationManager: PageTra
   const registration = HotkeyManager.getInstance().register(
     shortcut as Hotkey,
     () => {
+      if (!isContentScriptActive())
+        return
       if (pageTranslationManager.isActive) {
         pageTranslationManager.stop()
       }
       else {
-        void pageTranslationManager.start()
+        runContentScriptTask(() => pageTranslationManager.start(), "Failed to start page translation:")
       }
     },
     {

@@ -41,17 +41,69 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Build
-        run: pnpm build
-
       - name: Package browser builds
         run: pnpm zip:all
+
+      - name: Validate release package versions
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          import { execFileSync } from "node:child_process";
+          import { readFileSync, readdirSync } from "node:fs";
+
+          const { version } = JSON.parse(readFileSync("package.json", "utf8"));
+          if (process.env.GITHUB_REF_TYPE === "tag") {
+            assert.equal(process.env.GITHUB_REF_NAME, `v${version}`, "Release tag must match package.json");
+          }
+
+          const files = readdirSync(".output");
+          for (const target of ["chrome", "edge", "firefox", "sources"]) {
+            const packages = files.filter(file => file.endsWith(`-${target}.zip`));
+            assert.equal(packages.length, 1, `Expected one ${target} package`);
+            const file = packages[0];
+            assert.ok(file.endsWith(`-${version}-${target}.zip`), `${target} package filename must match package.json`);
+            const metadata = JSON.parse(execFileSync("unzip", ["-p", `.output/${file}`, target === "sources" ? "package.json" : "manifest.json"], { encoding: "utf8" }));
+            assert.equal(metadata.version, version, `${target} package version must match package.json`);
+          }
+          NODE
+
+      - name: Install lifecycle E2E browser
+        id: lifecycle_setup
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Extension lifecycle E2E - bilingual
+        shell: bash
+        run: |
+          mkdir -p .output/acceptance/extension-lifecycle/bilingual
+          pnpm e2e:extension .output/chrome-mv3 .output/acceptance/extension-lifecycle/bilingual \
+            2>&1 | tee .output/acceptance/extension-lifecycle/bilingual/run.log
+
+      - name: Extension lifecycle E2E - translation only
+        if: ${{ !cancelled() && steps.lifecycle_setup.outcome == 'success' }}
+        shell: bash
+        run: |
+          mkdir -p .output/acceptance/extension-lifecycle/translation-only
+          pnpm e2e:extension .output/chrome-mv3 .output/acceptance/extension-lifecycle/translation-only --translation-only \
+            2>&1 | tee .output/acceptance/extension-lifecycle/translation-only/run.log
+
+      - name: Upload lifecycle E2E artifacts
+        if: ${{ always() && steps.lifecycle_setup.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-lifecycle
+          path: .output/acceptance/extension-lifecycle/
+          if-no-files-found: error
+          include-hidden-files: true
 
       - name: Upload extension packages
         uses: actions/upload-artifact@v4
         with:
           name: extension-zips
-          path: .output/**/*.zip
+          path: |
+            .output/*-chrome.zip
+            .output/*-edge.zip
+            .output/*-firefox.zip
+            .output/*-sources.zip
           if-no-files-found: error
           include-hidden-files: true
 

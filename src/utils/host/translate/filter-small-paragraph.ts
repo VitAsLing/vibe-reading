@@ -2,6 +2,7 @@ import type { LangCodeISO6393 } from "@/definitions"
 import type { Config } from "@/types/config/config"
 import { ISO6393_TO_6391 } from "@/definitions"
 import { getDetectedCodeFromStorage, getFinalSourceCode } from "@/utils/config/languages"
+import { assertContentScriptActive } from "@/utils/content-script/lifecycle"
 
 function countWords(text: string, sourceCode: LangCodeISO6393): number {
   // Convert ISO 639-3 (e.g., 'eng') to ISO 639-1 (e.g., 'en') for Intl.Segmenter
@@ -11,6 +12,7 @@ function countWords(text: string, sourceCode: LangCodeISO6393): number {
 }
 
 async function getSourceCode(configSourceCode: LangCodeISO6393 | "auto"): Promise<LangCodeISO6393> {
+  assertContentScriptActive()
   const detectedCode = await getDetectedCodeFromStorage()
   return getFinalSourceCode(configSourceCode, detectedCode)
 }

@@ -1,6 +1,7 @@
 import type { ThemeMode } from "@/types/config/theme"
 import { atom } from "jotai"
 import { DEFAULT_THEME_MODE, themeModeSchema } from "@/types/config/theme"
+import { isContentScriptActive, runContentScriptTask } from "@/utils/content-script/lifecycle"
 import { THEME_STORAGE_KEY } from "../constants/config"
 import { logger } from "../logger"
 import { storageAdapter } from "./storage-adapter"
@@ -25,18 +26,32 @@ export const themeModeAtom = atom(
 )
 
 baseThemeModeAtom.onMount = (setAtom: (newValue: ThemeMode) => void) => {
-  void storageAdapter.get<ThemeMode>(THEME_STORAGE_KEY, DEFAULT_THEME_MODE, themeModeSchema).then(setAtom)
-  const unwatch = storageAdapter.watch<ThemeMode>(THEME_STORAGE_KEY, setAtom)
+  let mounted = true
+  const refresh = () => {
+    runContentScriptTask(async () => {
+      const value = await storageAdapter.get<ThemeMode>(THEME_STORAGE_KEY, DEFAULT_THEME_MODE, themeModeSchema)
+      if (mounted && isContentScriptActive()) {
+        setAtom(value)
+      }
+    }, "Failed to load theme:")
+  }
+  refresh()
+  const unwatch = storageAdapter.watch<ThemeMode>(THEME_STORAGE_KEY, (value) => {
+    if (mounted && isContentScriptActive()) {
+      setAtom(value)
+    }
+  })
 
   const handleVisibilityChange = () => {
     if (document.visibilityState === "visible") {
       logger.info("baseThemeModeAtom onMount handleVisibilityChange when: ", new Date())
-      void storageAdapter.get<ThemeMode>(THEME_STORAGE_KEY, DEFAULT_THEME_MODE, themeModeSchema).then(setAtom)
+      refresh()
     }
   }
   document.addEventListener("visibilitychange", handleVisibilityChange)
 
   return () => {
+    mounted = false
     unwatch()
     document.removeEventListener("visibilitychange", handleVisibilityChange)
   }

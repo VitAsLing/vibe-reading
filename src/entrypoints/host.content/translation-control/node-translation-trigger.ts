@@ -1,6 +1,7 @@
 import type { Config } from "@/types/config/config"
 import type { Point } from "@/types/dom"
 import { HOTKEY_EVENT_KEYS } from "@/utils/constants/hotkeys"
+import { runContentScriptTask } from "@/utils/content-script/lifecycle"
 
 const NODE_TRANSLATION_HOLD_TRIGGER_MS = 500
 const CLICK_AND_HOLD_MOVE_TOLERANCE = 6
@@ -112,7 +113,7 @@ export function registerNodeTranslationTriggerListeners({
   }
 
   const triggerNodeTranslation = (point: Point, config: Config) => {
-    void onTrigger(point, config)
+    runContentScriptTask(async () => onTrigger(point, config), "Failed to trigger paragraph translation:")
   }
 
   document.addEventListener("mousemove", (event) => {
@@ -168,6 +169,7 @@ export function registerNodeTranslationTriggerListeners({
   let timerId: ReturnType<typeof setTimeout> | null = null
   let actionTriggered = false
   let activeHotkeyEventKey: string | null = null
+  const pressedKeys = new Set<string>()
 
   const resetHotkeySession = () => {
     if (timerId) {
@@ -181,7 +183,7 @@ export function registerNodeTranslationTriggerListeners({
   }
 
   document.addEventListener("mousedown", (event) => {
-    void (async () => {
+    runContentScriptTask(async () => {
       if (shouldIgnoreEvent())
         return
       if (event.button !== 0)
@@ -206,7 +208,7 @@ export function registerNodeTranslationTriggerListeners({
 
       clearClickAndHoldTimer()
       clickAndHoldTimerId = setTimeout(() => {
-        void (async () => {
+        runContentScriptTask(async () => {
           if (shouldIgnoreEvent())
             return
           if (!isMousePressed || !mousePressPosition || clickAndHoldTriggered)
@@ -218,9 +220,9 @@ export function registerNodeTranslationTriggerListeners({
 
           triggerNodeTranslation(mousePressPosition, currentConfig)
           clickAndHoldTriggered = true
-        })()
+        }, "Failed to handle paragraph hold gesture:")
       }, NODE_TRANSLATION_HOLD_TRIGGER_MS)
-    })()
+    }, "Failed to handle paragraph mouse interaction:")
   }, { signal })
 
   document.addEventListener("mouseup", (event) => {
@@ -236,7 +238,14 @@ export function registerNodeTranslationTriggerListeners({
   }, { signal })
 
   document.addEventListener("keydown", (event) => {
-    void (async () => {
+    const pressedKey = event.code || event.key
+    const hasOtherPressedKey = [...pressedKeys].some(key => key !== pressedKey)
+    const hasOtherModifier = (event.ctrlKey && event.key !== "Control")
+      || (event.altKey && event.key !== "Alt")
+      || (event.metaKey && event.key !== "Meta")
+      || (event.shiftKey && event.key !== "Shift")
+    pressedKeys.add(pressedKey)
+    runContentScriptTask(async () => {
       if (shouldIgnoreEvent())
         return
       if (isEditableTarget(event.target))
@@ -252,10 +261,12 @@ export function registerNodeTranslationTriggerListeners({
 
       if (event.key === hotkeyEventKey) {
         if (!isHotkeyPressed) {
+          // Purity belongs to this press, not to a shortcut that already ended.
+          isHotkeySessionPure = !hasOtherPressedKey && !hasOtherModifier
           isHotkeyPressed = true
           activeHotkeyEventKey = hotkeyEventKey
           timerId = setTimeout(() => {
-            void (async () => {
+            runContentScriptTask(async () => {
               if (shouldIgnoreEvent())
                 return
               if (!isHotkeySessionPure || !isHotkeyPressed) {
@@ -276,7 +287,7 @@ export function registerNodeTranslationTriggerListeners({
               triggerNodeTranslation(resolveTriggerPoint(), currentConfig)
               actionTriggered = true
               timerId = null
-            })()
+            }, "Failed to handle paragraph hold shortcut:")
           }, NODE_TRANSLATION_HOLD_TRIGGER_MS)
 
           if (!isHotkeySessionPure && timerId) {
@@ -285,18 +296,19 @@ export function registerNodeTranslationTriggerListeners({
           }
         }
       }
-      else {
+      else if (isHotkeyPressed) {
         isHotkeySessionPure = false
-        if (isHotkeyPressed && timerId) {
+        if (timerId) {
           clearTimeout(timerId)
           timerId = null
         }
       }
-    })()
+    }, "Failed to handle paragraph shortcut keydown:")
   }, { signal })
 
   document.addEventListener("keyup", (event) => {
-    void (async () => {
+    pressedKeys.delete(event.code || event.key)
+    runContentScriptTask(async () => {
       if (shouldIgnoreEvent())
         return
       if (isEditableTarget(event.target))
@@ -327,11 +339,17 @@ export function registerNodeTranslationTriggerListeners({
         }
         resetHotkeySession()
       }
-    })()
+    }, "Failed to handle paragraph shortcut keyup:")
+  }, { signal })
+
+  window.addEventListener("blur", () => {
+    pressedKeys.clear()
+    resetHotkeySession()
   }, { signal })
 
   return () => {
     ac.abort()
+    pressedKeys.clear()
     resetHotkeySession()
     if (moveThrottleTimer) {
       clearTimeout(moveThrottleTimer)

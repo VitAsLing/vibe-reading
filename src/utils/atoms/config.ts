@@ -3,6 +3,7 @@ import { deepmergeCustom } from "deepmerge-ts"
 import { atom } from "jotai"
 import { selectAtom } from "jotai/utils"
 import { configSchema } from "@/types/config/config"
+import { isContentScriptActive, runContentScriptTask } from "@/utils/content-script/lifecycle"
 import { CONFIG_STORAGE_KEY, DEFAULT_CONFIG } from "../constants/config"
 import { logger } from "../logger"
 import { storageAdapter } from "./storage-adapter"
@@ -76,7 +77,7 @@ export const writeConfigAtom = atom(
         }
       }
       catch (error) {
-        console.error("Failed to set config to storage:", nextToPersist, error)
+        console.error("Failed to set config to storage:", error)
 
         // Roll back to storage value on error, but only if we're still the latest write.
         if (currentWriteVersion === writeVersion) {
@@ -106,16 +107,20 @@ configAtom.onMount = (setAtom: (newValue: Config) => void) => {
   // Flag to avoid race condition: if watch fires before initial get() resolves,
   // don't overwrite the fresher watch value with the stale get() result.
   let didReceiveStorageUpdate = false
+  let mounted = true
 
   // Initial load from storage
-  void storageAdapter.get<Config>(CONFIG_STORAGE_KEY, DEFAULT_CONFIG, configSchema).then((value) => {
-    if (!didReceiveStorageUpdate) {
+  runContentScriptTask(async () => {
+    const value = await storageAdapter.get<Config>(CONFIG_STORAGE_KEY, DEFAULT_CONFIG, configSchema)
+    if (mounted && isContentScriptActive() && !didReceiveStorageUpdate) {
       setAtom(value)
     }
-  })
+  }, "Failed to load configuration:")
 
   // Watch for changes from other extension contexts (popup, options page, other tabs)
   const unwatch = storageAdapter.watch<Config>(CONFIG_STORAGE_KEY, (value) => {
+    if (!mounted || !isContentScriptActive())
+      return
     didReceiveStorageUpdate = true
     setAtom(value)
   })
@@ -126,12 +131,18 @@ configAtom.onMount = (setAtom: (newValue: Config) => void) => {
   const handleVisibilityChange = () => {
     if (document.visibilityState === "visible") {
       logger.info("configAtom onMount handleVisibilityChange when: ", new Date())
-      void storageAdapter.get<Config>(CONFIG_STORAGE_KEY, DEFAULT_CONFIG, configSchema).then(setAtom)
+      runContentScriptTask(async () => {
+        const value = await storageAdapter.get<Config>(CONFIG_STORAGE_KEY, DEFAULT_CONFIG, configSchema)
+        if (mounted && isContentScriptActive()) {
+          setAtom(value)
+        }
+      }, "Failed to refresh configuration:")
     }
   }
   document.addEventListener("visibilitychange", handleVisibilityChange)
 
   return () => {
+    mounted = false
     unwatch()
     document.removeEventListener("visibilitychange", handleVisibilityChange)
   }

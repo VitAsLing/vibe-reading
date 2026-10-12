@@ -1,6 +1,7 @@
 import type { Config } from "@/types/config/config"
 import type { TranslationMode } from "@/types/config/translate"
 import type { TransNode } from "@/types/dom"
+import { isContentScriptActive } from "@/utils/content-script/lifecycle"
 import {
   CONTENT_WRAPPER_CLASS,
   NOTRANSLATE_CLASS,
@@ -12,7 +13,7 @@ import { isBlockTransNode, isHTMLElement, isTextNode, isTransNode } from "../../
 import { unwrapDeepestOnlyHTMLChild } from "../../dom/find"
 import { getOwnerDocument } from "../../dom/node"
 import { extractTextContent } from "../../dom/traversal"
-import { removeTranslatedWrapperWithRestore } from "../dom/translation-cleanup"
+import { bindTranslatedWrapperToSignal, removeShadowHostInTranslatedWrapper, removeTranslatedWrapperWithRestore } from "../dom/translation-cleanup"
 import { insertTranslatedNodeIntoWrapper } from "../dom/translation-insertion"
 import { findPreviousTranslatedWrapperInside } from "../dom/translation-wrapper"
 import { shouldFilterSmallParagraph } from "../filter-small-paragraph"
@@ -23,6 +24,26 @@ import { isNumericContent } from "../ui/translation-utils"
 import { MARK_ATTRIBUTES_REGEX, originalContentMap, translatingNodes } from "./translation-state"
 
 const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g
+
+function acquireTranslationNodes(nodes: ChildNode[], signal?: AbortSignal): (() => void) | null {
+  if (signal?.aborted || nodes.every(node => translatingNodes.has(node)))
+    return null
+
+  const operation = Symbol("translation operation")
+  nodes.forEach(node => translatingNodes.set(node, operation))
+  const release = () => {
+    signal?.removeEventListener("abort", release)
+    // Cancellation can let a new session reuse these nodes while the old HTTP
+    // request is pending. Its eventual finally must not release the new lock.
+    for (const node of nodes) {
+      if (translatingNodes.get(node) === operation) {
+        translatingNodes.delete(node)
+      }
+    }
+  }
+  signal?.addEventListener("abort", release, { once: true })
+  return release
+}
 
 function getDisplayTranslation(sourceText: string, translatedText: string | undefined) {
   if (translatedText === undefined) {
@@ -40,13 +61,14 @@ export async function translateNodes(
   toggle: boolean = false,
   config: Config,
   forceBlockTranslation: boolean = false,
+  signal?: AbortSignal,
 ): Promise<void> {
   const translationMode = config.translate.mode
   if (translationMode === "translationOnly") {
-    await translateNodeTranslationOnlyMode(nodes, walkId, config, toggle)
+    await translateNodeTranslationOnlyMode(nodes, walkId, config, toggle, signal)
   }
   else if (translationMode === "bilingual") {
-    await translateNodesBilingualMode(nodes, walkId, config, toggle, forceBlockTranslation)
+    await translateNodesBilingualMode(nodes, walkId, config, toggle, forceBlockTranslation, signal)
   }
 }
 
@@ -56,23 +78,25 @@ export async function translateNodesBilingualMode(
   config: Config,
   toggle: boolean = false,
   forceBlockTranslation: boolean = false,
+  signal?: AbortSignal,
 ): Promise<void> {
+  if (!isContentScriptActive() || signal?.aborted)
+    return
   const transNodes = nodes.filter(node => isTransNode(node))
   if (transNodes.length === 0) {
     return
   }
+  const releaseNodes = acquireTranslationNodes(transNodes, signal)
+  if (!releaseNodes)
+    return
   try {
-    // prevent duplicate translation
-    if (transNodes.every(node => translatingNodes.has(node))) {
-      return
-    }
-    transNodes.forEach(node => translatingNodes.add(node))
-
     const lastNode = transNodes.at(-1)!
     const targetNode
       = transNodes.length === 1 && isBlockTransNode(lastNode) && isHTMLElement(lastNode)
         ? await unwrapDeepestOnlyHTMLChild(lastNode)
         : lastNode
+    if (signal?.aborted)
+      return
 
     const existedTranslatedWrapper = findPreviousTranslatedWrapperInside(targetNode, walkId)
     if (existedTranslatedWrapper) {
@@ -81,8 +105,8 @@ export async function translateNodesBilingualMode(
         return
       }
       else {
-        nodes.forEach(node => translatingNodes.delete(node))
-        void translateNodesBilingualMode(nodes, walkId, config, toggle)
+        releaseNodes()
+        await translateNodesBilingualMode(nodes, walkId, config, toggle, forceBlockTranslation, signal)
         return
       }
     }
@@ -93,6 +117,8 @@ export async function translateNodesBilingualMode(
 
     if (await shouldFilterSmallParagraph(textContent, config))
       return
+    if (!isContentScriptActive() || signal?.aborted)
+      return
 
     const ownerDoc = getOwnerDocument(targetNode)
     const translatedWrapperNode = ownerDoc.createElement("span")
@@ -101,9 +127,12 @@ export async function translateNodesBilingualMode(
     translatedWrapperNode.setAttribute(WALKED_ATTRIBUTE, walkId)
     setTranslationDirAndLang(translatedWrapperNode, config)
     const spinner = createSpinnerInside(translatedWrapperNode)
+    bindTranslatedWrapperToSignal(translatedWrapperNode, signal)
 
     // Batch DOM insertion to reduce layout thrashing
     const insertOperation = () => {
+      if (!isContentScriptActive() || signal?.aborted)
+        return
       if (isTextNode(targetNode) || transNodes.length > 1) {
         targetNode.parentNode?.insertBefore(
           translatedWrapperNode,
@@ -116,7 +145,9 @@ export async function translateNodesBilingualMode(
     }
     batchDOMOperation(insertOperation)
 
-    const realTranslatedText = await getTranslatedTextAndRemoveSpinner(nodes, textContent, spinner, translatedWrapperNode)
+    const realTranslatedText = await getTranslatedTextAndRemoveSpinner(nodes, textContent, spinner, translatedWrapperNode, signal)
+    if (!isContentScriptActive() || signal?.aborted)
+      return
 
     const translatedText = getDisplayTranslation(textContent, realTranslatedText)
 
@@ -125,7 +156,10 @@ export async function translateNodesBilingualMode(
       // but keep it for error display (undefined)
       if (translatedText === "") {
         // Batch the remove operation to execute remove operation after insert operation
-        batchDOMOperation(() => translatedWrapperNode.remove())
+        batchDOMOperation(() => {
+          removeShadowHostInTranslatedWrapper(translatedWrapperNode)
+          translatedWrapperNode.remove()
+        })
       }
       return
     }
@@ -139,7 +173,7 @@ export async function translateNodesBilingualMode(
     )
   }
   finally {
-    transNodes.forEach(node => translatingNodes.delete(node))
+    releaseNodes()
   }
 }
 
@@ -148,7 +182,10 @@ export async function translateNodeTranslationOnlyMode(
   walkId: string,
   config: Config,
   toggle: boolean = false,
+  signal?: AbortSignal,
 ): Promise<void> {
+  if (!isContentScriptActive() || signal?.aborted)
+    return
   const isTransNodeAndNotTranslatedWrapper = (node: Node): node is TransNode => {
     if (isHTMLElement(node) && node.classList.contains(CONTENT_WRAPPER_CLASS))
       return false
@@ -160,28 +197,23 @@ export async function translateNodeTranslationOnlyMode(
     return
   }
 
-  // snapshot the outer parent element, to prevent lose it if we go to deeper by unwrapDeepestOnlyHTMLChild
-  // test case is:
-  // <div data-testid="test-node">
-  //   <span style={{ display: 'inline' }}>原文</span> // get the outer parent snapshot before go to inner element
-  //   <br />
-  //   <span style={{ display: 'inline' }}>原文</span>
-  //   原文
-  //   <br />
-  //   <span style={{ display: 'inline' }}>原文</span>
-  // </div>,
-  // Only save originalContent when there's no existing translation wrapper
-  // If wrapper exists, we're removing translation and should restore from saved content
-  const outerParentElement = outerTransNodes[0].parentElement
-  const hasExistingWrapper = outerParentElement?.querySelector(`.${CONTENT_WRAPPER_CLASS}`)
-  if (outerParentElement && !originalContentMap.has(outerParentElement) && !hasExistingWrapper) {
-    originalContentMap.set(outerParentElement, outerParentElement.innerHTML)
-  }
+  // Preserve the selected element, or the shared parent of an inline/text
+  // group, before unwrapping. Restoring a single paragraph's parent would
+  // replace that paragraph and revert already translated siblings on retry.
+  const originalContainer = outerTransNodes.length === 1 && isHTMLElement(outerTransNodes[0])
+    ? outerTransNodes[0]
+    : outerTransNodes[0].parentElement
+  const hasExistingWrapper = originalContainer?.querySelector(`.${CONTENT_WRAPPER_CLASS}`)
+  const originalContent = originalContainer && !originalContentMap.has(originalContainer) && !hasExistingWrapper
+    ? originalContainer.innerHTML
+    : null
 
   let transNodes: TransNode[] = []
   let allChildNodes: ChildNode[] = []
   if (outerTransNodes.length === 1 && isHTMLElement(outerTransNodes[0])) {
     const unwrappedHTMLChild = await unwrapDeepestOnlyHTMLChild(outerTransNodes[0])
+    if (signal?.aborted)
+      return
     allChildNodes = [...unwrappedHTMLChild.childNodes]
     transNodes = allChildNodes.filter(isTransNodeAndNotTranslatedWrapper)
   }
@@ -194,12 +226,10 @@ export async function translateNodeTranslationOnlyMode(
     return
   }
 
+  const releaseNodes = acquireTranslationNodes(nodes, signal)
+  if (!releaseNodes)
+    return
   try {
-    if (nodes.every(node => translatingNodes.has(node))) {
-      return
-    }
-    nodes.forEach(node => translatingNodes.add(node))
-
     const targetNode = transNodes.at(-1)!
 
     const parentNode = targetNode.parentElement
@@ -207,24 +237,28 @@ export async function translateNodeTranslationOnlyMode(
       console.error("targetNode.parentElement is not HTMLElement", targetNode.parentElement)
       return
     }
-    const existedTranslatedWrapper = findPreviousTranslatedWrapperInside(targetNode.parentElement, walkId)
+    const existedTranslatedWrapper = isHTMLElement(targetNode)
+      ? findPreviousTranslatedWrapperInside(targetNode, walkId)
+      : null
     const existedTranslatedWrapperOutside = targetNode.parentElement.closest(`.${CONTENT_WRAPPER_CLASS}`)
+    const nextSibling = targetNode.nextSibling
+    const adjacentTranslatedWrapper = nextSibling && isHTMLElement(nextSibling)
+      && nextSibling.classList.contains(CONTENT_WRAPPER_CLASS)
+      && nextSibling.getAttribute(WALKED_ATTRIBUTE) !== walkId
+      ? nextSibling
+      : null
 
-    const finalTranslatedWrapper = existedTranslatedWrapperOutside ?? existedTranslatedWrapper
+    const finalTranslatedWrapper = existedTranslatedWrapperOutside ?? existedTranslatedWrapper ?? adjacentTranslatedWrapper
     if (finalTranslatedWrapper && isHTMLElement(finalTranslatedWrapper)) {
       removeTranslatedWrapperWithRestore(finalTranslatedWrapper)
       if (toggle) {
         return
       }
       else {
-        // In translationOnly mode, removeTranslatedWrapperWithRestore uses innerHTML to restore content,
-        // which destroys the original DOM nodes and creates new ones. The 'nodes' array still references
-        // the old detached nodes, and targetNode can't reference to the new dom added by innerHTML anymore.
-        // Therefore, by recursively calling translateNodeTranslationOnlyMode here with the
-        // same nodes array, we ensure the translation uses the newly created DOM elements since the
-        // function will re-query and find the correct parent and child nodes from the restored DOM.
-        nodes.forEach(node => translatingNodes.delete(node))
-        void translateNodeTranslationOnlyMode(nodes, walkId, config, toggle)
+        // A selected paragraph stays attached when its innerHTML is restored;
+        // unwrapping it again reads the recreated children for the retry.
+        releaseNodes()
+        await translateNodeTranslationOnlyMode(nodes, walkId, config, toggle, signal)
         return
       }
     }
@@ -234,6 +268,8 @@ export async function translateNodeTranslationOnlyMode(
       return
 
     if (await shouldFilterSmallParagraph(innerTextContent, config))
+      return
+    if (!isContentScriptActive() || signal?.aborted)
       return
 
     const cleanTextContent = (content: string): string => {
@@ -246,11 +282,8 @@ export async function translateNodeTranslationOnlyMode(
       return cleanedContent
     }
 
-    // Only save originalContent when there's no existing translation wrapper
     const hasExistingWrapperInParent = parentNode.querySelector(`.${CONTENT_WRAPPER_CLASS}`)
-    if (!originalContentMap.has(parentNode) && !hasExistingWrapperInParent) {
-      originalContentMap.set(parentNode, parentNode.innerHTML)
-    }
+    const parentOriginalContent = hasExistingWrapperInParent ? null : parentNode.innerHTML
 
     const getStringFormatFromNode = (node: Element | Text) => {
       if (isTextNode(node)) {
@@ -271,9 +304,20 @@ export async function translateNodeTranslationOnlyMode(
     translatedWrapperNode.style.display = "contents"
     setTranslationDirAndLang(translatedWrapperNode, config)
     const spinner = createSpinnerInside(translatedWrapperNode)
+    bindTranslatedWrapperToSignal(translatedWrapperNode, signal)
 
     // Batch DOM insertion to reduce layout thrashing
     const insertOperation = () => {
+      if (!isContentScriptActive() || signal?.aborted)
+        return
+      // An unattached wrapper needs no restoration. Commit the captured source
+      // only when this session actually inserts its translation into the DOM.
+      if (originalContainer && originalContent !== null && !originalContentMap.has(originalContainer)) {
+        originalContentMap.set(originalContainer, originalContent)
+      }
+      if (parentOriginalContent !== null && !originalContentMap.has(parentNode)) {
+        originalContentMap.set(parentNode, parentOriginalContent)
+      }
       if (isTextNode(targetNode) || transNodes.length > 1) {
         targetNode.parentNode?.insertBefore(
           translatedWrapperNode,
@@ -286,7 +330,9 @@ export async function translateNodeTranslationOnlyMode(
     }
     batchDOMOperation(insertOperation)
 
-    const realTranslatedText = await getTranslatedTextAndRemoveSpinner(nodes, textContent, spinner, translatedWrapperNode)
+    const realTranslatedText = await getTranslatedTextAndRemoveSpinner(nodes, textContent, spinner, translatedWrapperNode, signal)
+    if (!isContentScriptActive() || signal?.aborted)
+      return
     const translatedText = realTranslatedText ? getDisplayTranslation(textContent, realTranslatedText) : realTranslatedText
 
     if (!translatedText) {
@@ -294,7 +340,10 @@ export async function translateNodeTranslationOnlyMode(
       // Only remove the wrapper when translation returned an empty string.
       if (translatedText === "") {
         // Batch the remove operation to execute remove operation after insert operation
-        batchDOMOperation(() => translatedWrapperNode.remove())
+        batchDOMOperation(() => {
+          removeShadowHostInTranslatedWrapper(translatedWrapperNode)
+          translatedWrapperNode.remove()
+        })
       }
       return
     }
@@ -303,6 +352,8 @@ export async function translateNodeTranslationOnlyMode(
 
     // Batch final DOM mutations to reduce layout thrashing
     batchDOMOperation(() => {
+      if (!isContentScriptActive() || signal?.aborted)
+        return
       // Insert translated content after the last node
       const lastChildNode = allChildNodes.at(-1)!
       lastChildNode.parentNode?.insertBefore(translatedWrapperNode, lastChildNode.nextSibling)
@@ -312,6 +363,6 @@ export async function translateNodeTranslationOnlyMode(
     })
   }
   finally {
-    nodes.forEach(node => translatingNodes.delete(node))
+    releaseNodes()
   }
 }

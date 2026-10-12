@@ -105,7 +105,7 @@ interface TranslationQueueSetupConfig<TContext = unknown> {
   promptResolver: PromptResolver<TContext>
 }
 
-async function createTranslationQueues<TContext>(config: TranslationQueueSetupConfig<TContext>) {
+function createTranslationQueues<TContext>(config: TranslationQueueSetupConfig<TContext>) {
   const { rate, capacity } = config.requestQueueConfig
   const { maxCharactersPerBatch, maxItemsPerBatch } = config.batchQueueConfig
   const { promptResolver } = config
@@ -160,18 +160,21 @@ async function createTranslationQueues<TContext>(config: TranslationQueueSetupCo
   return { requestQueue, batchQueue }
 }
 
-export async function setUpWebPageTranslationQueue() {
-  const config = await ensureInitializedConfig()
-
-  const { translate: { requestQueueConfig, batchQueueConfig } } = config ?? DEFAULT_CONFIG
-
-  const { requestQueue, batchQueue } = await createTranslationQueues({
-    requestQueueConfig,
-    batchQueueConfig,
-    promptResolver: getTranslatePrompt,
+export function setUpWebPageTranslationQueue() {
+  const queuesPromise = ensureInitializedConfig().then((config) => {
+    const { translate: { requestQueueConfig, batchQueueConfig } } = config ?? DEFAULT_CONFIG
+    return createTranslationQueues({
+      requestQueueConfig,
+      batchQueueConfig,
+      promptResolver: getTranslatePrompt,
+    })
   })
 
+  // Startup has no caller to receive failures; handlers still await the original promise.
+  void queuesPromise.catch(error => logger.error("Failed to initialize translation queues:", error))
+
   onMessage("enqueueTranslateRequest", async (message) => {
+    const { requestQueue, batchQueue } = await queuesPromise
     const { data: { text, langConfig, providerConfig, scheduleAt, hash, webTitle, webDescription, webContent, webSummary } } = message
 
     // Check cache first
@@ -213,6 +216,7 @@ export async function setUpWebPageTranslationQueue() {
   })
 
   onMessage("getOrGenerateWebPageSummary", async (message) => {
+    const { requestQueue } = await queuesPromise
     const { webTitle, webContent, providerConfig } = message.data
 
     if (!isLLMProviderConfig(providerConfig) || !webTitle || !webContent) {
@@ -222,12 +226,14 @@ export async function setUpWebPageTranslationQueue() {
     return await getOrGenerateWebPageSummary(webTitle, webContent, providerConfig, requestQueue)
   })
 
-  onMessage("setTranslateRequestQueueConfig", (message) => {
+  onMessage("setTranslateRequestQueueConfig", async (message) => {
+    const { requestQueue } = await queuesPromise
     const { data } = message
     requestQueue.setQueueOptions(data)
   })
 
-  onMessage("setTranslateBatchQueueConfig", (message) => {
+  onMessage("setTranslateBatchQueueConfig", async (message) => {
+    const { batchQueue } = await queuesPromise
     const { data } = message
     batchQueue.setBatchConfig(data)
   })

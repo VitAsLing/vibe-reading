@@ -39,6 +39,21 @@ pnpm build
 
 pre-push hook 直接通过 pnpm 运行 lint、类型检查和测试，不使用任务缓存。
 
+扩展生命周期 E2E 将生产构建加载到独立 Chromium 配置中，每种模式运行 18 个场景，验证后台唤醒、混合行内/块内容逐个重试、错误组件装载后的重载、动态内容和页面切换、挂起及静默重载、刷新恢复、停止或复用原元素后的迟到成功/失败、新旧请求状态归属、包装节点插入前取消，以及页面语言检测乱序。模型响应使用本地 HTTP 模拟；两个取消场景在浏览器边界延迟真实 `getDetectedCode` 消息或动画帧回调，不 mock 扩展内部函数。不读取常用浏览器配置或生产 API Key。
+
+```bash
+pnpm build
+pnpm exec playwright install chromium
+pnpm e2e:extension
+pnpm e2e:extension .output/chrome-mv3 .output/acceptance/translation-only --translation-only
+```
+
+两种模式串行运行。可将 `E2E_BROWSER_EXECUTABLE` 设置为已有 Chrome for Testing 可执行文件路径，验证指定浏览器版本；未设置时使用 Playwright Chromium。Build 工作流在打包后使用生产 Chrome 构建运行两种模式，验收工件与发布 ZIP 分开上传，场景失败时也保留工件。
+
+Playwright 默认模拟页面聚焦，本套件不证明原生标签页的 hidden/visible 切换，也不证明已登录 X 页面或真实付费模型服务的行为。
+
+默认工件位于 `.output/acceptance/extension-lifecycle`，包括实际浏览器版本、启动前捕获的提交与工作区状态、源码/验收脚本/构建摘要、步骤与断言、HTTP 和公开消息记录、worker 停止/重启顺序、Chrome 扩展错误列表、截图和 `trace.zip`。可通过 `pnpm exec playwright show-trace <trace.zip 路径>` 检查执行过程。
+
 ## 授权与致谢
 
 Vibe Reading 修改自 [Read Frog](https://github.com/mengxi-ream/read-frog)。感谢 Read Frog 的作者和贡献者提供原始 GPL 授权作品。

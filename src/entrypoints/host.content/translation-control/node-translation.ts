@@ -1,6 +1,7 @@
 import type { Config } from "@/types/config/config"
 import { getLocalConfig } from "@/utils/config/storage"
 import { DEFAULT_CONFIG } from "@/utils/constants/config"
+import { isContentScriptActive, runContentScriptTask } from "@/utils/content-script/lifecycle"
 import { removeOrShowNodeTranslation } from "@/utils/host/translate/node-manipulation"
 import { sendMessage } from "@/utils/message"
 import { registerNodeTranslationTriggerListeners } from "./node-translation-trigger"
@@ -17,8 +18,10 @@ export function registerNodeTranslationTriggers(): () => void {
   const { signal } = ac
 
   const getCurrentConfig = async (): Promise<Config | null> => {
+    if (!isContentScriptActive() || signal.aborted)
+      return null
     const config = await getLocalConfig()
-    if (signal.aborted)
+    if (!isContentScriptActive() || signal.aborted)
       return null
     return config ?? DEFAULT_CONFIG
   }
@@ -26,12 +29,14 @@ export function registerNodeTranslationTriggers(): () => void {
   let hasRequestedIframeInjection = false
 
   const requestIframeInjectionAfterSuccessfulTopFrameNodeTranslation = () => {
-    if (hasRequestedIframeInjection || window !== window.top || signal.aborted)
+    if (!isContentScriptActive() || hasRequestedIframeInjection || window !== window.top || signal.aborted)
       return
 
     hasRequestedIframeInjection = true
-    void sendMessage("injectCurrentIframesAfterTopFrameNodeTranslation", undefined)
-      .catch(() => undefined)
+    runContentScriptTask(
+      () => sendMessage("injectCurrentIframesAfterTopFrameNodeTranslation", undefined),
+      "Failed to initialize iframe paragraph translation:",
+    )
   }
 
   const translateNode = async (point: Parameters<typeof removeOrShowNodeTranslation>[0], config: Config) => {
@@ -43,9 +48,8 @@ export function registerNodeTranslationTriggers(): () => void {
 
   const teardownTriggerListeners = registerNodeTranslationTriggerListeners({
     getConfig: getCurrentConfig,
-    onTrigger: (point, config) => {
-      void translateNode(point, config)
-    },
+    shouldIgnoreEvent: () => !isContentScriptActive() || signal.aborted,
+    onTrigger: translateNode,
   })
 
   // Teardown: abort all listeners + cancel pending timers
