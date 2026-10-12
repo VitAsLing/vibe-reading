@@ -35,6 +35,7 @@ errorRecovery:
   resetAction: Restablecer configuración predeterminada
   resetSuccess: Recuperación completada. La configuración se ha restablecido
   resetFailed: Error de recuperación. No se pudo restablecer la configuración
+  saveFailed: No se pudo confirmar que la configuración se haya guardado. Inténtalo de nuevo.
   errorDetails: Detalles del error
   resetDialog:
     title: ¿Restablecer configuración?

@@ -2,8 +2,10 @@ import type { Config } from "@/types/config/config"
 import { deepmergeCustom } from "deepmerge-ts"
 import { atom } from "jotai"
 import { selectAtom } from "jotai/utils"
+import { toast } from "sonner"
 import { configSchema } from "@/types/config/config"
-import { isContentScriptActive, runContentScriptTask } from "@/utils/content-script/lifecycle"
+import { isContentScriptActive, isContentScriptInvalidationError, runContentScriptTask } from "@/utils/content-script/lifecycle"
+import { i18n } from "@/utils/i18n"
 import { CONFIG_STORAGE_KEY, DEFAULT_CONFIG } from "../constants/config"
 import { logger } from "../logger"
 import { storageAdapter } from "./storage-adapter"
@@ -22,7 +24,7 @@ export const mergeWithArrayOverwrite = deepmergeCustom({
  *   Promise.resolve() → task1 → task2 → task3 → ...
  *
  * This prevents race conditions when multiple writes happen in quick succession.
- * Even if a write fails, the queue continues (see `.catch(() => {})` below).
+ * Even if a write fails, the queue reports it and continues.
  */
 let writeQueue: Promise<void> = Promise.resolve()
 
@@ -34,14 +36,16 @@ let writeQueue: Promise<void> = Promise.resolve()
  * This prevents older writes from overwriting the optimistic UI state.
  */
 let writeVersion = 0
+let confirmedConfig: Config | undefined
 
 export const writeConfigAtom = atom(
   null,
-  async (get, set, patch: Partial<Config>) => {
+  (get, set, patch: Partial<Config>) => {
     // ─────────────────────────────────────────────────────────────────────────
     // STEP 1: Optimistic update (immediate UI feedback)
     // ─────────────────────────────────────────────────────────────────────────
     const localPrev = get(configAtom)
+    confirmedConfig ??= localPrev
     const optimisticNext = mergeWithArrayOverwrite(localPrev, patch)
     set(configAtom, optimisticNext)
 
@@ -58,12 +62,13 @@ export const writeConfigAtom = atom(
       // Always read fresh from storage to capture any writes that completed before us.
       // This ensures we don't lose concurrent field updates:
       //   write({x:1}) then write({y:2}) → storage ends up with {x:1, y:2}
-      const configInStorage = await storageAdapter.get<Config>(CONFIG_STORAGE_KEY, DEFAULT_CONFIG, configSchema)
-      const nextToPersist = mergeWithArrayOverwrite(configInStorage, patch)
-
       try {
+        const configInStorage = await storageAdapter.get<Config>(CONFIG_STORAGE_KEY, DEFAULT_CONFIG, configSchema)
+        confirmedConfig = configInStorage
+        const nextToPersist = mergeWithArrayOverwrite(configInStorage, patch)
         // Storage write always executes (not affected by version check)
         await storageAdapter.set(CONFIG_STORAGE_KEY, nextToPersist, configSchema)
+        confirmedConfig = nextToPersist
         await storageAdapter.setMeta(CONFIG_STORAGE_KEY, { lastModifiedAt: Date.now() })
 
         // ───────────────────────────────────────────────────────────────────
@@ -77,19 +82,26 @@ export const writeConfigAtom = atom(
         }
       }
       catch (error) {
-        console.error("Failed to set config to storage:", error)
+        logger.warn("Failed to confirm configuration save:", error)
 
         // Roll back to storage value on error, but only if we're still the latest write.
         if (currentWriteVersion === writeVersion) {
-          set(configAtom, configInStorage)
+          set(configAtom, confirmedConfig ?? localPrev)
         }
 
         throw error
       }
     })
 
-    // Update queue head. Use `.catch(() => {})` to ensure queue continues even if this write fails.
-    writeQueue = task.catch(() => {})
+    // Handle failure on the queue head so subsequent writes can still run.
+    // Return the original handled promise. Awaiting callers still receive the
+    // failure; settings callbacks that ignore it cannot create a second,
+    // unhandled async wrapper or silently leave optimistic values in the UI.
+    writeQueue = task.catch((error) => {
+      if (!isContentScriptInvalidationError(error)) {
+        toast.error(i18n.t("errorRecovery.saveFailed"))
+      }
+    })
 
     return task
   },
@@ -104,24 +116,28 @@ export const writeConfigAtom = atom(
  * 3. Tab reactivation: Reload when tab becomes visible (inactive tabs may miss watch events)
  */
 configAtom.onMount = (setAtom: (newValue: Config) => void) => {
-  // Flag to avoid race condition: if watch fires before initial get() resolves,
-  // don't overwrite the fresher watch value with the stale get() result.
-  let didReceiveStorageUpdate = false
+  let readVersion = 0
   let mounted = true
 
-  // Initial load from storage
-  runContentScriptTask(async () => {
-    const value = await storageAdapter.get<Config>(CONFIG_STORAGE_KEY, DEFAULT_CONFIG, configSchema)
-    if (mounted && isContentScriptActive() && !didReceiveStorageUpdate) {
-      setAtom(value)
-    }
-  }, "Failed to load configuration:")
+  const refresh = () => {
+    const version = ++readVersion
+    const currentWriteVersion = writeVersion
+    runContentScriptTask(async () => {
+      const value = await storageAdapter.get<Config>(CONFIG_STORAGE_KEY, DEFAULT_CONFIG, configSchema)
+      if (mounted && isContentScriptActive() && version === readVersion && currentWriteVersion === writeVersion) {
+        confirmedConfig = value
+        setAtom(value)
+      }
+    }, "Failed to load configuration:")
+  }
+  refresh()
 
   // Watch for changes from other extension contexts (popup, options page, other tabs)
   const unwatch = storageAdapter.watch<Config>(CONFIG_STORAGE_KEY, (value) => {
     if (!mounted || !isContentScriptActive())
       return
-    didReceiveStorageUpdate = true
+    readVersion++
+    confirmedConfig = value
     setAtom(value)
   })
 
@@ -131,12 +147,7 @@ configAtom.onMount = (setAtom: (newValue: Config) => void) => {
   const handleVisibilityChange = () => {
     if (document.visibilityState === "visible") {
       logger.info("configAtom onMount handleVisibilityChange when: ", new Date())
-      runContentScriptTask(async () => {
-        const value = await storageAdapter.get<Config>(CONFIG_STORAGE_KEY, DEFAULT_CONFIG, configSchema)
-        if (mounted && isContentScriptActive()) {
-          setAtom(value)
-        }
-      }, "Failed to refresh configuration:")
+      refresh()
     }
   }
   document.addEventListener("visibilitychange", handleVisibilityChange)

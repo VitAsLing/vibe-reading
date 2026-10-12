@@ -1,4 +1,5 @@
 import type { APICallError } from "ai"
+import type { TranslationOperation } from "../core/translation-operations"
 import * as React from "react"
 import textSmallCSS from "@/assets/styles/text-small.css?inline"
 import themeCSS from "@/assets/styles/theme.css?inline"
@@ -85,22 +86,22 @@ export async function getTranslatedTextAndRemoveSpinner(
   textContent: string,
   spinner: HTMLElement,
   translatedWrapperNode: HTMLElement,
-  signal?: AbortSignal,
+  operation: TranslationOperation,
 ): Promise<string | undefined> {
   let translatedText: string | undefined
 
   try {
-    if (signal?.aborted)
+    if (!operation.isCurrent())
       return undefined
     translatedText = await translateTextForPage(textContent)
-    if (!isContentScriptActive() || signal?.aborted) {
+    if (!operation.isCurrent()) {
       removeShadowHostInTranslatedWrapper(translatedWrapperNode)
       translatedWrapperNode.remove()
       return undefined
     }
   }
   catch (error) {
-    if (signal?.aborted)
+    if (!operation.isCurrent())
       return undefined
     if (isContentScriptInvalidationError(error) || !isContentScriptActive()) {
       reportContentScriptError("Translation failed after content script invalidation:", error)
@@ -111,7 +112,7 @@ export async function getTranslatedTextAndRemoveSpinner(
     const errorComponent = React.createElement(TranslationError, {
       nodes,
       error: error as APICallError,
-      signal,
+      signal: operation.scopeSignal,
     })
 
     const container = createReactShadowHost(
@@ -127,10 +128,10 @@ export async function getTranslatedTextAndRemoveSpinner(
       },
     )
 
-    translatedWrapperNode.appendChild(container)
+    operation.mutate(() => translatedWrapperNode.appendChild(container))
   }
   finally {
-    spinner.remove()
+    operation.mutate(() => spinner.remove())
   }
 
   return translatedText

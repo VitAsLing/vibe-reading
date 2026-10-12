@@ -2,6 +2,7 @@ import type { Config } from "@/types/config/config"
 import { getLocalConfig } from "@/utils/config/storage"
 import { DEFAULT_CONFIG } from "@/utils/constants/config"
 import { isContentScriptActive, runContentScriptTask } from "@/utils/content-script/lifecycle"
+import { getDocumentTranslationSignal } from "@/utils/host/translate/core/translation-operations"
 import { removeOrShowNodeTranslation } from "@/utils/host/translate/node-manipulation"
 import { sendMessage } from "@/utils/message"
 import { registerNodeTranslationTriggerListeners } from "./node-translation-trigger"
@@ -39,15 +40,16 @@ export function registerNodeTranslationTriggers(): () => void {
     )
   }
 
-  const translateNode = async (point: Parameters<typeof removeOrShowNodeTranslation>[0], config: Config) => {
-    const didTranslate = await removeOrShowNodeTranslation(point, config)
-    if (didTranslate) {
+  const translateNode = async (point: Parameters<typeof removeOrShowNodeTranslation>[0], config: Config, operationSignal = getDocumentTranslationSignal()) => {
+    const didTranslate = await removeOrShowNodeTranslation(point, config, operationSignal)
+    if (didTranslate && !operationSignal.aborted) {
       requestIframeInjectionAfterSuccessfulTopFrameNodeTranslation()
     }
   }
 
   const teardownTriggerListeners = registerNodeTranslationTriggerListeners({
     getConfig: getCurrentConfig,
+    getOperationSignal: getDocumentTranslationSignal,
     shouldIgnoreEvent: () => !isContentScriptActive() || signal.aborted,
     onTrigger: translateNode,
   })

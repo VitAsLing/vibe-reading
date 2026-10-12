@@ -25,14 +25,14 @@ export const providerConfigAtom = atomFamily((id: string) =>
       const providersConfig = get(configFieldsAtomMap.providersConfig)
       return getProviderConfigById(providersConfig, id)
     },
-    async (get, set, newProviderConfig: ProviderConfig) => {
+    (get, set, newProviderConfig: ProviderConfig) => {
       const providersConfig = get(configFieldsAtomMap.providersConfig)
 
       const updatedProviders = providersConfig.map(provider =>
         provider.id === id ? newProviderConfig : provider,
       )
 
-      await set(configFieldsAtomMap.providersConfig, updatedProviders)
+      return set(configFieldsAtomMap.providersConfig, updatedProviders)
     },
   ),
 )

@@ -8,6 +8,12 @@ import path from "node:path"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 import { chromium } from "playwright"
+import { runContentBoundaryCases } from "./boundaries/content.mjs"
+import { runInputBoundaryCases } from "./boundaries/input.mjs"
+import { runSettingsBoundaryCases } from "./boundaries/settings.mjs"
+import { runStateBoundaryCases } from "./boundaries/state.mjs"
+import { installStorageBoundary } from "./boundaries/storage.mjs"
+import { runUIBoundaryCases } from "./boundaries/ui.mjs"
 
 // This runs the production extension in Chromium. The remote model endpoint is
 // a fixture; one case delays a real Chrome message before forwarding it. All
@@ -15,6 +21,7 @@ import { chromium } from "playwright"
 const extensionPath = path.resolve(process.argv[2] ?? ".output/chrome-mv3")
 const outputPath = path.resolve(process.argv[3] ?? ".output/acceptance/extension-lifecycle")
 const baseline = process.argv.includes("--baseline")
+const selectedCase = process.argv.find(value => value.startsWith("--case="))?.slice(7)
 const translationMode = process.argv.includes("--translation-only") ? "translationOnly" : "bilingual"
 const browserExecutable = process.env.E2E_BROWSER_EXECUTABLE ? path.resolve(process.env.E2E_BROWSER_EXECUTABLE) : undefined
 await mkdir(outputPath, { recursive: true })
@@ -25,6 +32,7 @@ const browserExceptions = []
 const requests = []
 const heldResponses = []
 const heldMarkers = new Map()
+const providerResponses = new Map()
 const lifecycleEvents = []
 const diagnosticFailures = []
 const messageRecords = []
@@ -204,7 +212,10 @@ const server = http.createServer((req, res) => {
       const code = input.includes("LANG_A_CURRENT_FR") ? "fra" : input.includes("LANG_B_CURRENT") ? "cmn" : "eng"
       const text = detection
         ? JSON.stringify({ code })
-        : input.replace(/^Translate to [^:]+:\s*/, "").split(/\n\s*%%\s*\n/).map(part => `[E2E translated] ${part.trim()}`).join("\n%%\n")
+        : input.replace(/^Translate to [^:]+:\s*/, "").split(/\n\s*%%\s*\n/).map((part) => {
+            const response = [...providerResponses].find(([marker]) => part.includes(marker))?.[1]
+            return response === "empty" ? "" : response === "echo" ? part.trim() : `[E2E translated] ${part.trim()}`
+          }).join("\n%%\n")
       res.end(JSON.stringify({
         id: "e2e-local", object: "chat.completion", created: 1, model: "fixture-model",
         choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }],
@@ -249,6 +260,8 @@ async function until(predicate, label, timeoutMs = 15_000) {
 }
 
 async function check(name, action) {
+  if (selectedCase && name !== selectedCase && name !== "chrome-extension-error-list-empty")
+    return
   const start = Date.now()
   try {
     await action()
@@ -379,9 +392,10 @@ try {
 
   async function contentWorld() {
     let found
+    const mainFrameId = (await cdp.send("Page.getFrameTree")).frameTree.frame.id
     await until(async () => {
       for (const world of worlds.values()) {
-        if (world.auxData?.isDefault)
+        if (world.auxData?.isDefault || world.auxData?.frameId !== mainFrameId)
           continue
         const result = await cdp.send("Runtime.evaluate", {
           contextId: world.id, expression: "globalThis.chrome?.runtime?.id", returnByValue: true,
@@ -410,7 +424,7 @@ try {
   async function publicMessage(type, data) {
     const message = { id: messageId++, type, data, timestamp: Date.now() }
     return inContentWorld(`(async () => {
-      const response = await chrome.runtime.sendMessage(${JSON.stringify(message)});
+      const response = await globalThis.chrome.runtime.sendMessage(${JSON.stringify(message)});
       if (!response || response.err) throw new Error(response?.err?.message ?? "No response");
       return response.res;
     })()`)
@@ -436,9 +450,9 @@ try {
     await inContentWorld(`(() => {
       if (globalThis.__E2E_CHROME_BOUNDARY__) return;
       const state = globalThis.__E2E_CHROME_BOUNDARY__ = { messages: [], heldDetected: [], delayDetected: false, frames: [], delayFrames: false };
-      const send = chrome.runtime.sendMessage.bind(chrome.runtime);
+      const send = globalThis.chrome.runtime.sendMessage.bind(globalThis.chrome.runtime);
       const frame = requestAnimationFrame.bind(globalThis);
-      chrome.runtime.sendMessage = function (...args) {
+      globalThis.chrome.runtime.sendMessage = function (...args) {
         const message = args.find(value => value && typeof value === "object" && typeof value.type === "string");
         const entry = { type: message?.type, id: message?.id, text: message?.data?.text ?? message?.data?.prompt, url: message?.data?.url, startedAt: Date.now(), settled: false };
         state.messages.push(entry);
@@ -977,6 +991,50 @@ try {
     })
   }
 
+  if (!baseline) {
+    const configure = async (patch) => {
+      const currentWorker = await extensionWorker()
+      await currentWorker.evaluate(async (value) => {
+        const { config } = await globalThis.chrome.storage.local.get("config")
+        const next = { ...config, ...value, translate: { ...config.translate, ...value.translate }, language: { ...config.language, ...value.language } }
+        await globalThis.chrome.storage.local.set({ config: next })
+      }, patch)
+    }
+    const prepareHost = async (name, markup) => {
+      providerStatus = 200
+      const pageConfig = await (await extensionWorker()).evaluate(async () => (await globalThis.chrome.storage.local.get("config")).config.translate.page)
+      await configure({ language: { sourceCode: "eng" }, translate: { mode: translationMode, node: { enabled: true, hotkey: "control" }, page: { ...pageConfig, minWordsPerNode: 0 } } })
+      await page.goto(`${origin}/audit-${name}`)
+      await until(async () => await page.locator("[data-vibe-reading-host-toast]").count() === 1, `${name} host bootstrap`)
+      if (await publicMessage("getEnablePageTranslationFromContentScript")) {
+        await page.keyboard.press("Alt+KeyE")
+        await until(async () => await publicMessage("getEnablePageTranslationFromContentScript") === false, "previous translation stopped")
+      }
+      await waitForLanguage("eng")
+      await page.evaluate(({ html, title }) => {
+        document.querySelector("#article").innerHTML = html
+        document.title = title
+      }, { html: markup, title: `Audit ${name} Article` })
+      await observePublicMessages()
+    }
+    const setContentStoragePlan = async (plans) => {
+      await inContentWorld(`(${installStorageBoundary.toString()})()`)
+      await inContentWorld(`globalThis.__E2E_NATIVE_STORAGE__.plans.push(...${JSON.stringify(plans)})`)
+    }
+    const releaseContentStorage = label => inContentWorld(`globalThis.__E2E_NATIVE_STORAGE__.release(${JSON.stringify(label)})`)
+    const setProviderStatus = (status) => {
+      providerStatus = status
+    }
+    const harness = { check, page, context, origin, extensionId, cdp, extensionWorker, configure, prepareHost, until, nodeGesture, hasTranslation, originalDom, waitForLanguage, publicMessage, inContentWorld, observePublicMessages, waitForMessageResult, recordMessages, requests, heldMarkers, heldResponses, releaseHeld, providerResponses, translationMode, outputPath, installStorageBoundary, setContentStoragePlan, releaseContentStorage, setProviderStatus }
+    await runContentBoundaryCases(harness)
+    await runInputBoundaryCases(harness)
+    await runStateBoundaryCases(harness)
+    await runUIBoundaryCases(harness)
+    await runSettingsBoundaryCases(harness)
+    if (selectedCase)
+      assert.ok(cases.some(item => item.name === selectedCase), `No applicable acceptance case: ${selectedCase}`)
+  }
+
   await check(baseline ? "baseline-errors-recorded-by-chrome" : "chrome-extension-error-list-empty", async () => {
     const managerPage = await context.newPage()
     await managerPage.goto(`chrome://extensions/?errors=${extensionId}`)
@@ -1043,10 +1101,10 @@ finally {
     scriptSha256: sourceSnapshot?.scriptSha256, sourceSha256: sourceSnapshot?.sourceSha256, buildSha256: sourceSnapshot?.buildSha256,
     backgroundSha256: sourceSnapshot?.backgroundSha256, hostSha256: sourceSnapshot?.hostSha256,
     sourceStatus: sourceSnapshot?.sourceStatus, metadataCapturedAt: sourceSnapshot?.capturedAt,
-    command: `${browserExecutable ? `E2E_BROWSER_EXECUTABLE=${quote(browserExecutable)} ` : ""}pnpm e2e:extension ${quote(extensionPath)} ${quote(outputPath)}${baseline ? " --baseline" : ""}${translationMode === "translationOnly" ? " --translation-only" : ""}`,
+    command: `${browserExecutable ? `E2E_BROWSER_EXECUTABLE=${quote(browserExecutable)} ` : ""}pnpm e2e:extension ${quote(extensionPath)} ${quote(outputPath)}${baseline ? " --baseline" : ""}${translationMode === "translationOnly" ? " --translation-only" : ""}${selectedCase ? ` --case=${quote(selectedCase)}` : ""}`,
     environment: "Real Chrome/Chromium with the production unpacked extension in a disposable persistent profile; real browser storage, messaging, worker termination/reload and DOM; Playwright focus emulation means native tab visibility is outside this suite",
     dataPrerequisites: "Disposable extension config: English or automatic source, Chinese target, chosen translation mode, Control node gesture and Alt+E page shortcut, local fixture provider only",
-    simulatedExternalDependency: "Local OpenAI-compatible HTTP provider; one preparation case delays getDetectedCode before forwarding to real Chrome, one insertion case delays real requestAnimationFrame callbacks; no production credentials or paid API requests",
+    simulatedExternalDependency: "Local OpenAI-compatible HTTP provider with held/error/empty/echo responses; controlled Chrome message, storage reply and animation-frame timing (real APIs forwarded), plus one-shot storage/locale failures at extension-document bootstrap. Config refresh uses an explicitly dispatched visibilitychange entry; native tab activation is unverified. If the native action popup is unavailable to Playwright, the real popup document selects an actual Chrome fixture tab through a declared tabs-query boundary, recorded in settings-boundaries.json. No production credentials or paid API requests",
     cases, errors, browserExceptions, diagnosticFailures, requests, lifecycleEvents, messageRecords, failure: failure?.message,
   }
   try {

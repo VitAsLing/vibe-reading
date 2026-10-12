@@ -1,5 +1,6 @@
 import type { PageTranslationManager } from "./page-translation"
 import type { Config } from "@/types/config/config"
+import { runContentScriptTask } from "@/utils/content-script/lifecycle"
 
 /**
  * Handles config changes and re-translates page when translation mode changes
@@ -14,6 +15,6 @@ export function handleTranslationModeChange(
 
   if (modeChanged && manager.isActive) {
     manager.stop()
-    void manager.start()
+    runContentScriptTask(() => manager.start(), "Failed to restart translation after changing mode:")
   }
 }

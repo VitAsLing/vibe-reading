@@ -8,6 +8,7 @@ import * as React from "react"
 import { browser } from "#imports"
 import AppToast from "@/components/app-toast"
 import { ThemeProvider } from "@/components/providers/theme-provider"
+import { renderBootstrapRecovery } from "@/components/recovery/bootstrap-recovery"
 import { RecoveryBoundary } from "@/components/recovery/recovery-boundary"
 import { TooltipProvider } from "@/components/ui/base-ui/tooltip"
 import { configAtom } from "@/utils/atoms/config"
@@ -96,4 +97,4 @@ async function initApp() {
   ))
 }
 
-void initApp()
+void initApp().catch(error => renderBootstrapRecovery(document.getElementById("root")!, error))

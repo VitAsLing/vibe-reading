@@ -35,6 +35,7 @@ errorRecovery:
   resetAction: Đặt lại về cài đặt mặc định
   resetSuccess: Khôi phục hoàn tất. Cài đặt đã được đặt lại
   resetFailed: Khôi phục thất bại. Không thể đặt lại cài đặt
+  saveFailed: Không thể xác nhận cài đặt đã được lưu. Vui lòng thử lại.
   errorDetails: Chi tiết lỗi
   resetDialog:
     title: Đặt lại cài đặt?

@@ -28,7 +28,7 @@ export default defineBackground({
     translationMessage()
 
     setUpWebPageTranslationQueue()
-    void setUpDatabaseCleanup()
+    void setUpDatabaseCleanup().catch(error => logger.error("Failed to initialize cache cleanup alarms:", error))
 
     proxyFetch()
     setupLLMGenerateTextMessageHandlers()

@@ -1,4 +1,5 @@
 import { Icon } from "@iconify/react"
+import { toast } from "sonner"
 import { i18n } from "@/utils/i18n"
 import { openOptionsPage } from "@/utils/navigation"
 import { version } from "../../../package.json"
@@ -30,7 +31,7 @@ function App() {
           type="button"
           className="flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 hover:bg-neutral-300 dark:hover:bg-neutral-700"
           onClick={() => {
-            void openOptionsPage()
+            void openOptionsPage().catch(error => toast.error(String(error)))
           }}
         >
           <Icon icon="tabler:settings" className="size-4" strokeWidth={1.6} />

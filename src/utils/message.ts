@@ -15,8 +15,8 @@ interface ProtocolMap {
   // translation state
   getEnablePageTranslationByTabId: (data: { tabId: number }) => boolean | undefined
   getEnablePageTranslationFromContentScript: () => Promise<boolean>
-  tryToSetEnablePageTranslationByTabId: (data: { tabId: number, enabled: boolean }) => void
-  setAndNotifyPageTranslationStateChangedByManager: (data: { enabled: boolean, url?: string }) => void
+  tryToSetEnablePageTranslationByTabId: (data: { tabId: number, enabled: boolean }) => boolean
+  setAndNotifyPageTranslationStateChangedByManager: (data: { enabled: boolean, url?: string }) => boolean
   notifyTranslationStateChanged: (data: { enabled: boolean }) => void
   injectCurrentIframesAfterTopFrameNodeTranslation: () => void
   reportDetectedPageLanguage: (data: { detectedCodeOrUnd: LangCodeISO6393 | "und", url: string }) => void
@@ -24,7 +24,7 @@ interface ProtocolMap {
   getDetectedCode: () => LangCodeISO6393
   detectedPageLanguageChanged: (data: { detectedCode: LangCodeISO6393 }) => void
   // ask host to start page translation
-  askManagerToTogglePageTranslation: (data: { enabled: boolean }) => void
+  askManagerToTogglePageTranslation: (data: { enabled: boolean }) => boolean
   // request
   enqueueTranslateRequest: (data: { text: string, langConfig: Config["language"], providerConfig: ProviderConfig, scheduleAt: number, hash: string, webTitle?: string | null, webDescription?: string | null, webContent?: string | null, webSummary?: string | null }) => Promise<string>
   getOrGenerateWebPageSummary: (data: { webTitle: string, webContent: string, providerConfig: ProviderConfig }) => Promise<string | null>

@@ -27,10 +27,12 @@ export const themeModeAtom = atom(
 
 baseThemeModeAtom.onMount = (setAtom: (newValue: ThemeMode) => void) => {
   let mounted = true
+  let readVersion = 0
   const refresh = () => {
+    const version = ++readVersion
     runContentScriptTask(async () => {
       const value = await storageAdapter.get<ThemeMode>(THEME_STORAGE_KEY, DEFAULT_THEME_MODE, themeModeSchema)
-      if (mounted && isContentScriptActive()) {
+      if (mounted && isContentScriptActive() && version === readVersion) {
         setAtom(value)
       }
     }, "Failed to load theme:")
@@ -38,6 +40,7 @@ baseThemeModeAtom.onMount = (setAtom: (newValue: ThemeMode) => void) => {
   refresh()
   const unwatch = storageAdapter.watch<ThemeMode>(THEME_STORAGE_KEY, (value) => {
     if (mounted && isContentScriptActive()) {
+      readVersion++
       setAtom(value)
     }
   })

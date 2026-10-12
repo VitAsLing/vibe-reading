@@ -1,29 +1,63 @@
 import type { Config } from "@/types/config/config"
 import type { Point } from "@/types/dom"
 import { HOTKEY_EVENT_KEYS } from "@/utils/constants/hotkeys"
-import { runContentScriptTask } from "@/utils/content-script/lifecycle"
+import { isContentScriptActive, reportContentScriptError, runContentScriptTask } from "@/utils/content-script/lifecycle"
 
 const NODE_TRANSLATION_HOLD_TRIGGER_MS = 500
 const CLICK_AND_HOLD_MOVE_TOLERANCE = 6
 const MOUSEMOVE_THROTTLE_MS = 300
 const MOUSEMOVE_DISTANCE_THRESHOLD = 3
+const KEYBOARD_HOTKEYS = new Set(Object.entries(HOTKEY_EVENT_KEYS).filter(([hotkey]) => hotkey !== "clickAndHold").map(([, key]) => key))
 
 export interface NodeTranslationTriggerOptions {
   getConfig: () => Promise<Config | null>
-  onTrigger: (point: Point, config: Config) => void | Promise<void>
+  getOperationSignal?: () => AbortSignal
+  onTrigger: (point: Point, config: Config, signal?: AbortSignal) => void | Promise<void>
   shouldIgnoreEvent?: () => boolean
 }
 
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement))
-    return false
+interface PressState {
+  cancelled: boolean
+  claimed: boolean
+  startedAt: number
+  operationSignal?: AbortSignal
+  timerId: ReturnType<typeof setTimeout> | null
+  removeAbortListener?: () => void
+}
 
-  const tag = target.tagName
-  if (tag === "INPUT" || tag === "TEXTAREA")
-    return true
-  if (target.isContentEditable)
-    return true
+interface MousePress extends PressState {
+  kind: "mouse"
+  point: Point
+}
+
+interface KeyboardPress extends PressState {
+  kind: "keyboard"
+  physicalKey: string
+  key: string
+  released: boolean
+  releasePoint: Point | null
+  initialConfig: Promise<Config | null> | null
+}
+
+type Press = MousePress | KeyboardPress
+
+function isEditableElement(target: unknown): boolean {
+  return target instanceof HTMLElement
+    && (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable)
+}
+
+function hasEditableFocus(): boolean {
+  let focused = document.activeElement
+  while (focused) {
+    if (isEditableElement(focused))
+      return true
+    focused = focused.shadowRoot?.activeElement ?? null
+  }
   return false
+}
+
+function isEditableEvent(event: Event): boolean {
+  return event.composedPath().some(isEditableElement) || isEditableElement(event.target)
 }
 
 function isDocumentSurfaceTarget(target: EventTarget | null): boolean {
@@ -33,22 +67,26 @@ function isDocumentSurfaceTarget(target: EventTarget | null): boolean {
     || target === document.body
 }
 
-/**
- * Registers the shared node-translation interaction state machine.
- *
- * The full host content script uses this to translate immediately while keeping
- * the hotkey and click-and-hold handling in one place.
- */
+/** Register paragraph gestures while keeping each physical press independent. */
 export function registerNodeTranslationTriggerListeners({
   getConfig,
+  getOperationSignal,
   onTrigger,
   shouldIgnoreEvent = () => false,
 }: NodeTranslationTriggerOptions): () => void {
   const ac = new AbortController()
   const { signal } = ac
-
   const mousePosition: Point = { x: 0, y: 0 }
   let hasMousePosition = false
+  let lastMoveX = 0
+  let lastMoveY = 0
+  let moveThrottleTimer: ReturnType<typeof setTimeout> | null = null
+  let mousePress: MousePress | null = null
+  const pressedKeys = new Set<string>()
+  const keyboardPresses = new Map<string, KeyboardPress>()
+  // Released pure shortcuts can still be awaiting configuration. A later
+  // press must not overwrite their coordinates or claim/reset their action.
+  const pendingKeyboardPresses = new Set<KeyboardPress>()
 
   const updateMousePosition = (point: Point) => {
     mousePosition.x = point.x
@@ -56,97 +94,117 @@ export function registerNodeTranslationTriggerListeners({
     hasMousePosition = true
   }
 
-  const getDeepestHoveredElement = (): Element | null => {
-    const hoveredElements = document.querySelectorAll(":hover")
-    return hoveredElements.item(hoveredElements.length - 1)
-  }
-
-  const getElementCenterPoint = (element: Element): Point | null => {
-    const rect = element.getBoundingClientRect()
-    if (rect.width <= 0 || rect.height <= 0)
-      return null
-
-    return {
-      x: rect.left + rect.width / 2,
-      y: rect.top + rect.height / 2,
-    }
-  }
-
   const resolveTriggerPoint = (): Point => {
     if (hasMousePosition)
       return { ...mousePosition }
-
-    const hoveredElement = getDeepestHoveredElement()
-    const hoveredPoint = hoveredElement ? getElementCenterPoint(hoveredElement) : null
-    return hoveredPoint ?? { ...mousePosition }
+    const hoveredElements = document.querySelectorAll(":hover")
+    const hovered = hoveredElements.item(hoveredElements.length - 1)
+    if (hovered) {
+      const rect = hovered.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0)
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+    }
+    return { ...mousePosition }
   }
 
-  // --- Mousemove: throttled + distance threshold ---
-  let lastMoveX = 0
-  let lastMoveY = 0
-  let moveThrottleTimer: ReturnType<typeof setTimeout> | null = null
-
-  // --- Click-and-hold state ---
-  let isMousePressed = false
-  let clickAndHoldTriggered = false
-  let mousePressPosition: Point | null = null
-  let clickAndHoldTimerId: ReturnType<typeof setTimeout> | null = null
-
-  const resetClickAndHoldState = () => {
-    isMousePressed = false
-    clickAndHoldTriggered = false
-    mousePressPosition = null
-  }
-
-  const clearClickAndHoldTimer = () => {
-    if (clickAndHoldTimerId) {
-      clearTimeout(clickAndHoldTimerId)
-      clickAndHoldTimerId = null
+  const clearPressTimer = (press: Press) => {
+    if (press.timerId !== null) {
+      clearTimeout(press.timerId)
+      press.timerId = null
     }
   }
 
-  const getCurrentConfig = async (): Promise<Config | null> => {
-    const config = await getConfig()
-    if (signal.aborted)
-      return null
-    return config
+  const discard = (press: Press) => {
+    press.cancelled = true
+    clearPressTimer(press)
+    press.removeAbortListener?.()
+    press.removeAbortListener = undefined
+    if (press.kind === "mouse") {
+      if (mousePress === press)
+        mousePress = null
+    }
+    else {
+      pendingKeyboardPresses.delete(press)
+      if (keyboardPresses.get(press.physicalKey) === press)
+        keyboardPresses.delete(press.physicalKey)
+    }
   }
 
-  const triggerNodeTranslation = (point: Point, config: Config) => {
-    runContentScriptTask(async () => onTrigger(point, config), "Failed to trigger paragraph translation:")
+  const cancelCandidates = () => {
+    if (mousePress)
+      discard(mousePress)
+    for (const press of [...pendingKeyboardPresses, ...keyboardPresses.values()])
+      discard(press)
+    pressedKeys.clear()
+  }
+
+  const bindOperation = (press: Press) => {
+    if (!press.operationSignal)
+      return
+    const onAbort = () => discard(press)
+    press.operationSignal.addEventListener("abort", onAbort, { once: true })
+    press.removeAbortListener = () => press.operationSignal?.removeEventListener("abort", onAbort)
+  }
+
+  const canClaim = (press: Press) => !press.cancelled && !press.claimed
+    && !signal.aborted && isContentScriptActive() && !shouldIgnoreEvent()
+    && !press.operationSignal?.aborted
+
+  const readConfig = async (press: Press): Promise<Config | null> => {
+    if (!canClaim(press))
+      return null
+    try {
+      const config = await getConfig()
+      return canClaim(press) ? config : null
+    }
+    catch (error) {
+      discard(press)
+      reportContentScriptError("Failed to read paragraph gesture configuration:", error)
+      return null
+    }
+  }
+
+  const matchesKeyboardConfig = (press: KeyboardPress, config: Config | null): config is Config => !!config
+    && config.translate.node.enabled && config.translate.node.hotkey !== "clickAndHold"
+    && HOTKEY_EVENT_KEYS[config.translate.node.hotkey] === press.key
+
+  const claim = (press: Press, point: Point, config: Config) => {
+    if (!canClaim(press))
+      return
+    press.claimed = true
+    clearPressTimer(press)
+    press.removeAbortListener?.()
+    press.removeAbortListener = undefined
+    if (press.kind === "keyboard")
+      pendingKeyboardPresses.delete(press)
+    runContentScriptTask(async () => {
+      if (signal.aborted || press.operationSignal?.aborted || shouldIgnoreEvent())
+        return
+      if (press.operationSignal)
+        await onTrigger(point, config, press.operationSignal)
+      else
+        await onTrigger(point, config)
+    }, "Failed to trigger paragraph translation:")
+  }
+
+  const cancelMovedMousePress = (event: MouseEvent | PointerEvent) => {
+    if (mousePress && Math.hypot(event.clientX - mousePress.point.x, event.clientY - mousePress.point.y) > CLICK_AND_HOLD_MOVE_TOLERANCE)
+      discard(mousePress)
   }
 
   document.addEventListener("mousemove", (event) => {
     if (shouldIgnoreEvent())
       return
-
-    // Distance threshold: ignore tiny movements (trackpad tremor, mouse jitter)
-    if (
-      Math.abs(event.clientX - lastMoveX) + Math.abs(event.clientY - lastMoveY)
-      <= MOUSEMOVE_DISTANCE_THRESHOLD
-    ) {
+    // Cancellation precedes both jitter filtering and hover throttling. A
+    // pointerover event can already have updated the last hover coordinates.
+    cancelMovedMousePress(event)
+    if (Math.abs(event.clientX - lastMoveX) + Math.abs(event.clientY - lastMoveY) <= MOUSEMOVE_DISTANCE_THRESHOLD)
       return
-    }
-
-    // Click-and-hold move cancellation (always immediate, no throttle)
-    if (isMousePressed && mousePressPosition) {
-      const deltaX = event.clientX - mousePressPosition.x
-      const deltaY = event.clientY - mousePressPosition.y
-      if (Math.hypot(deltaX, deltaY) > CLICK_AND_HOLD_MOVE_TOLERANCE) {
-        isMousePressed = false
-        mousePressPosition = null
-        clearClickAndHoldTimer()
-      }
-    }
-
-    // Throttled position update
     if (moveThrottleTimer)
       return
-
     moveThrottleTimer = setTimeout(() => {
       moveThrottleTimer = null
     }, MOUSEMOVE_THROTTLE_MS)
-
     updateMousePosition({ x: event.clientX, y: event.clientY })
     lastMoveX = event.clientX
     lastMoveY = event.clientY
@@ -155,206 +213,155 @@ export function registerNodeTranslationTriggerListeners({
   const updateMousePositionFromEvent = (event: MouseEvent | PointerEvent) => {
     if (shouldIgnoreEvent())
       return
-
+    cancelMovedMousePress(event)
     updateMousePosition({ x: event.clientX, y: event.clientY })
     lastMoveX = event.clientX
     lastMoveY = event.clientY
   }
-
   document.addEventListener("mouseover", updateMousePositionFromEvent, { signal })
   document.addEventListener("pointerover", updateMousePositionFromEvent, { signal })
 
-  let isHotkeyPressed = false
-  let isHotkeySessionPure = true
-  let timerId: ReturnType<typeof setTimeout> | null = null
-  let actionTriggered = false
-  let activeHotkeyEventKey: string | null = null
-  const pressedKeys = new Set<string>()
-
-  const resetHotkeySession = () => {
-    if (timerId) {
-      clearTimeout(timerId)
-      timerId = null
-    }
-    isHotkeyPressed = false
-    isHotkeySessionPure = true
-    actionTriggered = false
-    activeHotkeyEventKey = null
-  }
-
   document.addEventListener("mousedown", (event) => {
+    if (shouldIgnoreEvent() || event.button !== 0)
+      return
+    if (mousePress)
+      discard(mousePress)
+    if (isEditableEvent(event) || isDocumentSurfaceTarget(event.target))
+      return
+    const operationSignal = getOperationSignal?.()
+    if (operationSignal?.aborted)
+      return
+    const press: MousePress = {
+      kind: "mouse", point: { x: event.clientX, y: event.clientY }, startedAt: performance.now(),
+      operationSignal, cancelled: false, claimed: false, timerId: null,
+    }
+    mousePress = press
+    bindOperation(press)
     runContentScriptTask(async () => {
-      if (shouldIgnoreEvent())
-        return
-      if (event.button !== 0)
-        return
-      if (isEditableTarget(event.target))
-        return
-      if (isDocumentSurfaceTarget(event.target)) {
-        resetClickAndHoldState()
-        clearClickAndHoldTimer()
+      const config = await readConfig(press)
+      if (!config?.translate.node.enabled || config.translate.node.hotkey !== "clickAndHold" || mousePress !== press) {
+        discard(press)
         return
       }
-
-      const point = { x: event.clientX, y: event.clientY }
-
-      const config = await getCurrentConfig()
-      if (!config || !config.translate.node.enabled || config.translate.node.hotkey !== "clickAndHold")
-        return
-
-      isMousePressed = true
-      clickAndHoldTriggered = false
-      mousePressPosition = point
-
-      clearClickAndHoldTimer()
-      clickAndHoldTimerId = setTimeout(() => {
+      press.timerId = setTimeout(() => {
         runContentScriptTask(async () => {
-          if (shouldIgnoreEvent())
+          if (!canClaim(press) || mousePress !== press)
             return
-          if (!isMousePressed || !mousePressPosition || clickAndHoldTriggered)
+          const currentConfig = await readConfig(press)
+          if (!canClaim(press) || mousePress !== press)
             return
-
-          const currentConfig = await getCurrentConfig()
-          if (!currentConfig || !currentConfig.translate.node.enabled || currentConfig.translate.node.hotkey !== "clickAndHold")
+          if (!currentConfig?.translate.node.enabled || currentConfig.translate.node.hotkey !== "clickAndHold" || hasEditableFocus()) {
+            discard(press)
             return
-
-          triggerNodeTranslation(mousePressPosition, currentConfig)
-          clickAndHoldTriggered = true
+          }
+          claim(press, press.point, currentConfig)
         }, "Failed to handle paragraph hold gesture:")
-      }, NODE_TRANSLATION_HOLD_TRIGGER_MS)
+      }, Math.max(0, NODE_TRANSLATION_HOLD_TRIGGER_MS - (performance.now() - press.startedAt)))
     }, "Failed to handle paragraph mouse interaction:")
   }, { signal })
 
   document.addEventListener("mouseup", (event) => {
-    if (shouldIgnoreEvent())
-      return
-    if (event.button !== 0)
-      return
-    if (!isMousePressed && !clickAndHoldTimerId)
-      return
-
-    resetClickAndHoldState()
-    clearClickAndHoldTimer()
+    if (event.button === 0 && mousePress)
+      discard(mousePress)
   }, { signal })
 
   document.addEventListener("keydown", (event) => {
-    const pressedKey = event.code || event.key
-    const hasOtherPressedKey = [...pressedKeys].some(key => key !== pressedKey)
+    const physicalKey = event.code || event.key
+    const alreadyPressed = pressedKeys.has(physicalKey)
+    const hasOtherPressedKey = [...pressedKeys].some(key => key !== physicalKey)
     const hasOtherModifier = (event.ctrlKey && event.key !== "Control")
       || (event.altKey && event.key !== "Alt")
       || (event.metaKey && event.key !== "Meta")
       || (event.shiftKey && event.key !== "Shift")
-    pressedKeys.add(pressedKey)
+    // Physical state and combination cancellation never await storage.
+    for (const press of keyboardPresses.values()) {
+      if (press.physicalKey !== physicalKey)
+        discard(press)
+    }
+    pressedKeys.add(physicalKey)
+    if (shouldIgnoreEvent() || signal.aborted || alreadyPressed || !KEYBOARD_HOTKEYS.has(event.key))
+      return
+    if (isEditableEvent(event) || hasEditableFocus()) {
+      cancelCandidates()
+      return
+    }
+    if (hasOtherPressedKey || hasOtherModifier)
+      return
+    const operationSignal = getOperationSignal?.()
+    if (operationSignal?.aborted)
+      return
+    const press: KeyboardPress = {
+      kind: "keyboard", physicalKey, key: event.key, released: false, releasePoint: null,
+      startedAt: performance.now(), operationSignal, cancelled: false, claimed: false, timerId: null, initialConfig: null,
+    }
+    keyboardPresses.set(physicalKey, press)
+    pendingKeyboardPresses.add(press)
+    bindOperation(press)
+    press.initialConfig = readConfig(press)
     runContentScriptTask(async () => {
-      if (shouldIgnoreEvent())
-        return
-      if (isEditableTarget(event.target))
-        return
-
-      const config = await getCurrentConfig()
-      if (!config || !config.translate.node.enabled || config.translate.node.hotkey === "clickAndHold") {
-        resetHotkeySession()
+      const config = await press.initialConfig
+      if (!matchesKeyboardConfig(press, config)) {
+        discard(press)
         return
       }
-
-      const hotkeyEventKey = HOTKEY_EVENT_KEYS[config.translate.node.hotkey]
-
-      if (event.key === hotkeyEventKey) {
-        if (!isHotkeyPressed) {
-          // Purity belongs to this press, not to a shortcut that already ended.
-          isHotkeySessionPure = !hasOtherPressedKey && !hasOtherModifier
-          isHotkeyPressed = true
-          activeHotkeyEventKey = hotkeyEventKey
-          timerId = setTimeout(() => {
-            runContentScriptTask(async () => {
-              if (shouldIgnoreEvent())
-                return
-              if (!isHotkeySessionPure || !isHotkeyPressed) {
-                timerId = null
-                return
-              }
-
-              const currentConfig = await getCurrentConfig()
-              if (!currentConfig || !currentConfig.translate.node.enabled || currentConfig.translate.node.hotkey === "clickAndHold") {
-                timerId = null
-                return
-              }
-              if (HOTKEY_EVENT_KEYS[currentConfig.translate.node.hotkey] !== activeHotkeyEventKey) {
-                timerId = null
-                return
-              }
-
-              triggerNodeTranslation(resolveTriggerPoint(), currentConfig)
-              actionTriggered = true
-              timerId = null
-            }, "Failed to handle paragraph hold shortcut:")
-          }, NODE_TRANSLATION_HOLD_TRIGGER_MS)
-
-          if (!isHotkeySessionPure && timerId) {
-            clearTimeout(timerId)
-            timerId = null
+      if (!canClaim(press) || press.released)
+        return
+      press.timerId = setTimeout(() => {
+        runContentScriptTask(async () => {
+          if (!canClaim(press) || press.released || hasEditableFocus())
+            return
+          const point = resolveTriggerPoint()
+          const currentConfig = await readConfig(press)
+          if (!canClaim(press) || press.released || hasEditableFocus())
+            return
+          if (!matchesKeyboardConfig(press, currentConfig)) {
+            discard(press)
+            return
           }
-        }
-      }
-      else if (isHotkeyPressed) {
-        isHotkeySessionPure = false
-        if (timerId) {
-          clearTimeout(timerId)
-          timerId = null
-        }
-      }
+          claim(press, point, currentConfig)
+        }, "Failed to handle paragraph hold shortcut:")
+      }, Math.max(0, NODE_TRANSLATION_HOLD_TRIGGER_MS - (performance.now() - press.startedAt)))
     }, "Failed to handle paragraph shortcut keydown:")
   }, { signal })
 
   document.addEventListener("keyup", (event) => {
-    pressedKeys.delete(event.code || event.key)
+    const physicalKey = event.code || event.key
+    pressedKeys.delete(physicalKey)
+    const press = keyboardPresses.get(physicalKey)
+    if (!press)
+      return
+    keyboardPresses.delete(physicalKey)
+    press.released = true
+    press.releasePoint = resolveTriggerPoint()
+    clearPressTimer(press)
+    if (!canClaim(press) || isEditableEvent(event) || hasEditableFocus()) {
+      discard(press)
+      return
+    }
     runContentScriptTask(async () => {
-      if (shouldIgnoreEvent())
-        return
-      if (isEditableTarget(event.target))
-        return
-
-      const config = await getCurrentConfig()
-      if (!config || !config.translate.node.enabled || config.translate.node.hotkey === "clickAndHold") {
-        if (event.key === activeHotkeyEventKey)
-          resetHotkeySession()
+      const currentConfig = await readConfig(press)
+      const initialConfig = await press.initialConfig
+      if (!matchesKeyboardConfig(press, initialConfig) || !matchesKeyboardConfig(press, currentConfig) || hasEditableFocus()) {
+        discard(press)
         return
       }
-
-      const hotkeyEventKey = HOTKEY_EVENT_KEYS[config.translate.node.hotkey]
-
-      if (event.key === hotkeyEventKey || event.key === activeHotkeyEventKey) {
-        if (isHotkeyPressed && isHotkeySessionPure) {
-          if (timerId) {
-            clearTimeout(timerId)
-            timerId = null
-          }
-          if (!actionTriggered) {
-            const currentConfig = await getCurrentConfig()
-            if (!currentConfig || !currentConfig.translate.node.enabled || currentConfig.translate.node.hotkey === "clickAndHold")
-              return
-
-            triggerNodeTranslation(resolveTriggerPoint(), currentConfig)
-          }
-        }
-        resetHotkeySession()
-      }
+      if (press.releasePoint)
+        claim(press, press.releasePoint, currentConfig)
     }, "Failed to handle paragraph shortcut keyup:")
   }, { signal })
 
-  window.addEventListener("blur", () => {
-    pressedKeys.clear()
-    resetHotkeySession()
+  document.addEventListener("focusin", (event) => {
+    if (isEditableEvent(event) || hasEditableFocus())
+      cancelCandidates()
   }, { signal })
+  window.addEventListener("blur", cancelCandidates, { signal })
 
   return () => {
     ac.abort()
-    pressedKeys.clear()
-    resetHotkeySession()
+    cancelCandidates()
     if (moveThrottleTimer) {
       clearTimeout(moveThrottleTimer)
       moveThrottleTimer = null
     }
-    clearClickAndHoldTimer()
   }
 }

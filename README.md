@@ -68,7 +68,7 @@ pnpm build
 
 The pre-push hook runs lint, type checking, and tests directly through pnpm, without a task cache.
 
-The extension lifecycle E2E loads the production build into a disposable Chromium profile and runs 18 scenarios per mode. It covers background wakeup, individual retries in mixed inline/block content, reload with mounted error controls, dynamic content and SPA navigation, in-flight and silent extension reloads, page reload recovery, delayed success/failure after stop or element reuse, request ownership across sessions, cancellation before wrapper insertion, and out-of-order page language detection. Model responses use a local HTTP fixture. Two cancellation cases delay a real `getDetectedCode` message or animation-frame callback at the browser boundary; internal extension functions are not mocked. No regular browser profile or production API key is read.
+The extension lifecycle E2E loads the production build into a disposable Chromium profile and exercises bilingual and translation-only modes. It covers background wakeup, individual retries in mixed inline/block content, reload with mounted error controls, dynamic content and SPA navigation, in-flight and silent extension reloads, page reload recovery, delayed success/failure after stop or element reuse, request ownership across sessions, cancellation before wrapper insertion, and out-of-order page language detection. It also covers same-URL source changes and detached error controls, independent keyboard/mouse presses with delayed configuration, iframe state rejection, late storage acknowledgements, settings startup failures and recovery, failed saves, theme/configuration freshness, and live shortcut updates. Model responses use a local HTTP fixture. Timing and failure injection occurs at Chrome storage/message, HTTP, locale-fetch, and animation-frame boundaries; internal extension functions are not mocked. No regular browser profile or production API key is read.
 
 ```bash
 pnpm build
@@ -77,9 +77,9 @@ pnpm e2e:extension
 pnpm e2e:extension .output/chrome-mv3 .output/acceptance/translation-only --translation-only
 ```
 
-Run the two modes sequentially. Set `E2E_BROWSER_EXECUTABLE` to an existing Chrome for Testing executable to check a specific browser version; otherwise the runner uses Playwright Chromium. The Build workflow runs both modes against the production Chrome build after packaging and uploads acceptance artifacts separately from release ZIPs, including when a scenario fails.
+Run the two modes sequentially. Use `--case=<name>` for a focused scenario; an unknown case fails acceptance. Set `E2E_BROWSER_EXECUTABLE` to an existing Chrome for Testing executable to check a specific browser version; otherwise the runner uses Playwright Chromium. The Build workflow runs both modes against the production Chrome build after packaging and uploads acceptance artifacts separately from release ZIPs, including when a scenario fails.
 
-Playwright emulates page focus by default. This suite does not establish native tab hidden/visible transitions, authenticated X-page behavior, or production model-service behavior.
+Playwright emulates page focus by default. The configuration-refresh scenario explicitly dispatches the public `visibilitychange` entry; this suite does not establish native tab hidden/visible transitions or native blur. Authenticated X-page behavior and production model-service behavior are also outside its evidence.
 
 Artifacts in `.output/acceptance/extension-lifecycle` include the actual browser version, the revision and working-tree state, source/script/build hashes captured before launch, steps and assertions, HTTP and public-message records, worker stop/restart ordering, the Chrome extension error list, screenshots, and `trace.zip`. Inspect the trace with `pnpm exec playwright show-trace <path-to-trace.zip>`.
 

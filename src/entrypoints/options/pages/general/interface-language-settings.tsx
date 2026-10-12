@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/base-ui/select"
 import { configFieldsAtomMap, writeConfigAtom } from "@/utils/atoms/config"
 import { i18n } from "@/utils/i18n"
+import { logger } from "@/utils/logger"
 import { ConfigCard } from "../../components/config-card"
 
 const UI_LOCALE_ITEMS: Array<{
@@ -52,7 +53,7 @@ export default function InterfaceLanguageSettings() {
           value={uiLocale}
           onValueChange={(value) => {
             if (value !== null) {
-              void handleLocaleChange(value)
+              void handleLocaleChange(value).catch(error => logger.warn("Settings action did not complete:", error))
             }
           }}
         >

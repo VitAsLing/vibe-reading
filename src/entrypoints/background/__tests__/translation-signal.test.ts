@@ -18,6 +18,7 @@ const loggerErrorMock = vi.fn()
 const loggerWarnMock = vi.fn()
 
 const messageHandlers = new Map<string, (msg: any) => any>()
+let currentTabUrl = "https://example.com/articles/1"
 
 vi.mock("@/utils/message", () => ({
   onMessage: onMessageMock,
@@ -41,7 +42,13 @@ function getHandler(name: string) {
   if (!handler) {
     throw new Error(`Expected message handler to be registered: ${name}`)
   }
-  return handler
+  return (msg: any) => {
+    // These existing cases report from the current top document. Supply the
+    // matching live browser metadata now checked at the real API boundary.
+    if (msg.sender?.frameId === 0 && msg.data?.url)
+      currentTabUrl = msg.data.url
+    return handler(msg)
+  }
 }
 
 function getOnCommittedListener() {
@@ -49,7 +56,11 @@ function getOnCommittedListener() {
   if (!listener) {
     throw new Error("Expected webNavigation.onCommitted listener to be registered")
   }
-  return listener as (details: { tabId: number, frameId: number, url: string }) => Promise<void>
+  return (details: { tabId: number, frameId: number, url: string }) => {
+    if (details.frameId === 0)
+      currentTabUrl = details.url
+    return listener(details) as Promise<void>
+  }
 }
 
 function getOnRemovedListener() {
@@ -65,7 +76,10 @@ function getOnActivatedListener() {
   if (!listener) {
     throw new Error("Expected tabs.onActivated listener to be registered")
   }
-  return listener as (activeInfo: { tabId: number }) => Promise<void>
+  return (activeInfo: { tabId: number }) => {
+    tabsQueryMock.mockResolvedValue([{ id: activeInfo.tabId, url: currentTabUrl }])
+    return listener(activeInfo) as Promise<void>
+  }
 }
 
 async function setupSubject() {
@@ -77,10 +91,20 @@ describe("translationMessage", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     messageHandlers.clear()
+    currentTabUrl = "https://example.com/articles/1"
 
     browser.tabs.onRemoved.addListener = tabsOnRemovedAddListenerMock
     browser.tabs.onActivated.addListener = tabsOnActivatedAddListenerMock
-    browser.tabs.query = tabsQueryMock
+    browser.tabs.query = async (query) => {
+      const tabs = await tabsQueryMock(query)
+      return tabs.map((tab: { id: number, url?: string }) => ({ ...tab, url: tab.url ?? currentTabUrl }))
+    }
+    browser.tabs.get = vi.fn(async (id: number) => ({
+      id, url: currentTabUrl, index: 0, windowId: 1, active: true,
+      highlighted: true, pinned: false, incognito: false, discarded: false,
+      autoDiscardable: true, groupId: -1, frozen: false, selected: true,
+    }))
+    browser.webNavigation.getFrame = vi.fn().mockResolvedValue({ url: "https://embed.example.net/frame" })
     browser.webNavigation.onCommitted.addListener = webNavigationOnCommittedAddListenerMock
     storage.getItem = storageGetItemMock
     storage.setItem = storageSetItemMock
@@ -90,7 +114,7 @@ describe("translationMessage", () => {
       messageHandlers.set(name, handler)
       return vi.fn()
     })
-    sendMessageMock.mockResolvedValue(undefined)
+    sendMessageMock.mockImplementation(async (name, data) => name === "askManagerToTogglePageTranslation" ? data.enabled : undefined)
     tabsQueryMock.mockResolvedValue([{ id: 42 }])
     storageGetItemMock.mockResolvedValue(undefined)
     storageSetItemMock.mockResolvedValue(undefined)
@@ -150,7 +174,7 @@ describe("translationMessage", () => {
 
     expect(storageSetItemMock).toHaveBeenCalledWith(getTranslationStateKey(42), { enabled: false })
     expect(sendMessageMock).toHaveBeenCalledWith("notifyTranslationStateChanged", { enabled: false }, 42)
-    expect(sendMessageMock).toHaveBeenCalledWith("askManagerToTogglePageTranslation", { enabled: false }, 42)
+    expect(sendMessageMock).toHaveBeenCalledWith("askManagerToTogglePageTranslation", { enabled: false }, { tabId: 42, frameId: 0 })
   })
 
   it("injects current iframes after successful top-frame node translation", async () => {
@@ -293,7 +317,7 @@ describe("translationMessage", () => {
 
     expect(storageSetItemMock).not.toHaveBeenCalled()
     expect(injectHostContentIntoTabIframesMock).not.toHaveBeenCalled()
-    expect(sendMessageMock).toHaveBeenCalledWith("askManagerToTogglePageTranslation", { enabled: true }, 42)
+    expect(sendMessageMock).toHaveBeenCalledWith("askManagerToTogglePageTranslation", { enabled: true }, { tabId: 42, frameId: 0 })
   })
 
   it("publishes cached detected language and requests refresh when tabs are activated", async () => {

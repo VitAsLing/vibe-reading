@@ -72,6 +72,7 @@ describe("registerNodeTranslationTriggers", () => {
             node: expect.objectContaining({ enabled: true }),
           }),
         }),
+        expect.any(AbortSignal),
       )
       expect(mocks.sendMessage).toHaveBeenCalledWith(
         "injectCurrentIframesAfterTopFrameNodeTranslation",

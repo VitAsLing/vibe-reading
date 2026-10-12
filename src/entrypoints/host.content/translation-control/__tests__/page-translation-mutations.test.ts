@@ -212,7 +212,7 @@ describe("pageTranslationManager mutation re-walk", () => {
     mockWalkAndLabelElement.mockImplementation((element: HTMLElement, walkId: string) => walkAndLabelVisibleParagraphs(element, walkId))
     mockTranslateTextForPageTitle.mockResolvedValue("")
     mockValidateTranslationConfigAndToast.mockReturnValue(true)
-    mockSendMessage.mockResolvedValue(undefined)
+    mockSendMessage.mockImplementation(async (type: string) => type === "setAndNotifyPageTranslationStateChangedByManager" ? true : undefined)
   })
 
   it("observes and translates hidden accordion content after it becomes visible", async () => {

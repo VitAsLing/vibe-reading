@@ -1,0 +1,313 @@
+import assert from "node:assert/strict"
+import { writeFile } from "node:fs/promises"
+import path from "node:path"
+
+function observeSettingsMessages() {
+  if (!globalThis.chrome?.runtime?.id || globalThis.__E2E_SETTINGS_MESSAGES__)
+    return
+  const state = globalThis.__E2E_SETTINGS_MESSAGES__ = { calls: [] }
+  const send = globalThis.chrome.runtime.sendMessage.bind(globalThis.chrome.runtime)
+  globalThis.chrome.runtime.sendMessage = (...args) => {
+    const message = args.find(value => value && typeof value === "object" && typeof value.type === "string")
+    const entry = { type: message?.type, enabled: message?.data?.enabled, settled: false }
+    state.calls.push(entry)
+    const callback = typeof args.at(-1) === "function" ? args.at(-1) : null
+    if (callback) {
+      const forwarded = [...args]
+      forwarded[forwarded.length - 1] = (...values) => {
+        entry.settled = true
+        entry.error = values[0]?.err?.message
+        return callback(...values)
+      }
+      return send(...forwarded)
+    }
+    return send(...args).then((response) => {
+      entry.settled = true
+      entry.error = response?.err?.message
+      return response
+    }, (error) => {
+      entry.settled = true
+      entry.error = error.message
+      throw error
+    })
+  }
+}
+
+// Used only if Chrome's native popup cannot be exposed as a Playwright Page.
+// Every query reaches Chrome. The adapter selects the actual fixture host from
+// Chrome's returned tabs rather than inventing page state or tab metadata.
+function selectRealHostAtTabsBoundary({ extensionId, hostURL }) {
+  if (globalThis.location?.host !== extensionId)
+    return
+  const query = globalThis.chrome.tabs.query.bind(globalThis.chrome.tabs)
+  const state = globalThis.__E2E_POPUP_TAB_SELECTION__ = { calls: [] }
+  globalThis.chrome.tabs.query = async (queryInfo) => {
+    const actual = await query(queryInfo)
+    if (!queryInfo?.active || !queryInfo.currentWindow)
+      return actual
+    const all = await query({})
+    const host = all.find(tab => tab.url === hostURL)
+    if (!host)
+      throw new Error("E2E fixture host no longer exists")
+    state.calls.push({ nativeQueryForwarded: true, selectedTabId: host.id, selectedURL: host.url })
+    return [host]
+  }
+}
+
+export async function runSettingsBoundaryCases(h) {
+  const {
+    check, page, context, extensionId, extensionWorker, prepareHost, configure,
+    until, publicMessage, hasTranslation, installStorageBoundary, outputPath,
+  } = h
+  const evidence = []
+  let popupFallbackReason
+
+  async function record(name, ui, extra = {}) {
+    const metadata = await ui.evaluate(() => ({
+      storage: globalThis.__E2E_NATIVE_STORAGE__ && {
+        calls: globalThis.__E2E_NATIVE_STORAGE__.calls,
+        held: globalThis.__E2E_NATIVE_STORAGE__.held.map(item => ({ label: item.label })),
+        plans: globalThis.__E2E_NATIVE_STORAGE__.plans,
+      },
+      messages: globalThis.__E2E_SETTINGS_MESSAGES__?.calls,
+      tabSelection: globalThis.__E2E_POPUP_TAB_SELECTION__?.calls,
+    }))
+    evidence.push({ name, ...extra, metadata })
+    await writeFile(path.join(outputPath, "settings-boundaries.json"), JSON.stringify(evidence, null, 2))
+    await ui.screenshot({ path: path.join(outputPath, `${name}.png`) })
+  }
+
+  async function settledConfigReads(ui) {
+    await until(async () => await ui.evaluate(() => {
+      const reads = globalThis.__E2E_NATIVE_STORAGE__.calls.filter(call =>
+        call.area === "local" && call.method === "get" && call.keys.includes("config"))
+      return reads.length >= 2 && reads.every(call => call.settled)
+    }), "real UI bootstrap and config hydration completed before injecting a save fault")
+  }
+
+  async function openOptions(route, selector) {
+    const ui = await context.newPage()
+    await ui.addInitScript(installStorageBoundary)
+    await ui.addInitScript(observeSettingsMessages)
+    await ui.goto(`chrome-extension://${extensionId}/options.html#${route}`)
+    await ui.bringToFront()
+    await until(() => ui.locator(selector).isVisible(), `real options route ready: ${route}`)
+    await settledConfigReads(ui)
+    return ui
+  }
+
+  async function saveReadFault(ui, label) {
+    await ui.evaluate(value => globalThis.__E2E_NATIVE_STORAGE__.plans.push({
+      area: "local", method: "get", key: "config", action: "reject", label: value,
+    }), label)
+  }
+
+  async function waitForFault(ui, label) {
+    await until(async () => await ui.evaluate(value =>
+      globalThis.__E2E_NATIVE_STORAGE__.calls.some(call => call.label === value && call.settled), label),
+    "real native settings read returned the injected failure")
+    await ui.evaluate(() => new Promise(resolve =>
+      requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  }
+
+  await check("settings-add-provider-save-failure-recovers", async () => {
+    const name = "settings-add-provider-save-failure-recovers"
+    await configure({ uiLocale: "en" })
+    const worker = await extensionWorker()
+    const previous = await worker.evaluate(async () =>
+      (await globalThis.chrome.storage.local.get("config")).config.providersConfig)
+    assert.ok(!previous.some(provider => provider.name === "DeepSeek"), "the fixture must start without the provider being added")
+    const ui = await openOptions("/api-providers", "#api-providers")
+    try {
+      await ui.getByRole("button", { name: "Add Provider", exact: true }).click()
+      const dialog = ui.getByRole("dialog")
+      await until(() => dialog.isVisible(), "real add-provider dialog opened")
+      await saveReadFault(ui, "add-provider-save-read")
+      await dialog.getByRole("button", { name: "DeepSeek", exact: true }).click()
+      await waitForFault(ui, "add-provider-save-read")
+      assert.equal(await dialog.isVisible(), true, "a failed provider save must leave the dialog open")
+      assert.equal(await ui.locator("#api-providers").getByRole("switch").locator("..").getByText("DeepSeek", { exact: true }).count(), 0,
+        "a failed save must not leave a phantom provider in the editor list")
+      assert.deepEqual(await worker.evaluate(async () =>
+        (await globalThis.chrome.storage.local.get("config")).config.providersConfig), previous,
+      "a save-read failure must leave the real saved provider list unchanged")
+      await until(async () => await ui.locator("[data-sonner-toast]").count() > 0,
+        "the failed save must be visible to the user")
+      await dialog.getByRole("button", { name: "DeepSeek", exact: true }).click()
+      await until(async () => await worker.evaluate(async (count) => {
+        const providers = (await globalThis.chrome.storage.local.get("config")).config.providersConfig
+        return providers.length === count + 1 && providers.filter(provider => provider.name === "DeepSeek").length === 1
+      }, previous.length), "the next provider add saved exactly once")
+      await until(async () => await dialog.count() === 0, "successful provider add closed the dialog")
+      assert.equal(await ui.locator("#api-providers").getByRole("switch").locator("..").getByText("DeepSeek", { exact: true }).count(), 1,
+        "the successfully saved provider must appear once in the real list")
+    }
+    finally {
+      await record(name, ui)
+      await ui.close()
+      await configure({ providersConfig: previous })
+    }
+  })
+
+  for (const kind of [
+    { name: "rate", id: "translate-capacity", section: "requestQueueConfig", property: "capacity", message: "setTranslateRequestQueueConfig" },
+    { name: "batch", id: "batch-maxItemsPerBatch", section: "batchQueueConfig", property: "maxItemsPerBatch", message: "setTranslateBatchQueueConfig" },
+  ]) {
+    await check(`settings-${kind.name}-save-failure-preserves-live-queue`, async () => {
+      const name = `settings-${kind.name}-save-failure-preserves-live-queue`
+      await prepareHost(name, "<p>Settings queue acceptance uses the production extension and a local model endpoint.</p>")
+      await configure({ uiLocale: "en" })
+      const worker = await extensionWorker()
+      const previous = await worker.evaluate(async section =>
+        (await globalThis.chrome.storage.local.get("config")).config.translate[section], kind.section)
+      const value = previous[kind.property] + 1
+      const ui = await openOptions("/translation", `#${kind.id}`)
+      try {
+        await saveReadFault(ui, name)
+        await ui.locator(`#${kind.id}`).fill(String(value))
+        await waitForFault(ui, name)
+        assert.deepEqual(await worker.evaluate(async section =>
+          (await globalThis.chrome.storage.local.get("config")).config.translate[section], kind.section), previous,
+        "a failed settings save must retain the actual stored queue configuration")
+        assert.equal(await ui.evaluate(type =>
+          globalThis.__E2E_SETTINGS_MESSAGES__.calls.filter(call => call.type === type).length, kind.message), 0,
+        "a failed persistence operation must not send a live queue mutation")
+        await until(async () => await ui.locator(`#${kind.id}`).inputValue() === String(previous[kind.property]),
+          "failed optimistic queue setting rolled back")
+        await until(async () => await ui.locator("[data-sonner-toast]").count() > 0,
+          "queue save failure has visible feedback")
+        await ui.locator(`#${kind.id}`).fill(String(value))
+        await until(async () => await worker.evaluate(async ({ section, property, expected }) =>
+          (await globalThis.chrome.storage.local.get("config")).config.translate[section][property] === expected,
+        { section: kind.section, property: kind.property, expected: value }), "next queue settings save succeeded")
+        await until(async () => await ui.evaluate(type =>
+          globalThis.__E2E_SETTINGS_MESSAGES__.calls.some(call => call.type === type && call.settled && !call.error), kind.message),
+        "the persisted queue change was acknowledged by the real background")
+        assert.equal(await ui.locator(`#${kind.id}`).inputValue(), String(value),
+          "successful persisted queue setting is displayed")
+      }
+      finally {
+        await record(name, ui)
+        await ui.close()
+        await configure({ translate: { [kind.section]: previous } })
+        await publicMessage(kind.message, previous)
+      }
+    })
+  }
+
+  async function openHostPopup() {
+    await page.bringToFront()
+    const popupURL = `chrome-extension://${extensionId}/popup.html`
+    if (!popupFallbackReason) {
+      const browserCDP = await context.browser().newBrowserCDPSession()
+      let result
+      try {
+        const { targetInfos: tabs } = await browserCDP.send("Target.getTargets", {
+          filter: [{ type: "tab", exclude: false }],
+        })
+        const hostTab = tabs.find(target => target.type === "tab" && target.url === page.url())
+        if (!hostTab) {
+          popupFallbackReason = "Chrome did not expose a native tab target for the actual fixture host URL"
+        }
+        const nextPage = context.waitForEvent("page", { timeout: 4000 })
+          .then(ui => ({ ui }), error => ({ pageUnavailable: error.message }))
+        try {
+          if (hostTab) {
+            await browserCDP.send("Extensions.triggerAction", { id: extensionId, targetId: hostTab.targetId })
+          }
+        }
+        catch (error) {
+          if (!/Method not found|Extensions\.triggerAction.*(?:not found|wasn't found)|not supported|not implemented|requires.*extensions/i.test(error.message))
+            throw error
+          popupFallbackReason = error.message
+        }
+        result = await nextPage
+        if (result.ui) {
+          await result.ui.waitForURL(url => url.href.startsWith(popupURL), { timeout: 4000 })
+          await result.ui.evaluate(observeSettingsMessages)
+          await until(() => result.ui.getByRole("button", { name: /^Translate/ }).isVisible(), "native Chrome action popup opened for the actual host")
+          return { ui: result.ui, mode: "native Chrome action popup" }
+        }
+        popupFallbackReason ??= result.pageUnavailable
+        const { targetInfos } = await browserCDP.send("Target.getTargets")
+        for (const target of targetInfos.filter(target => target.url.startsWith(popupURL))) {
+          await browserCDP.send("Target.closeTarget", { targetId: target.targetId })
+        }
+      }
+      finally {
+        await browserCDP.detach()
+      }
+    }
+    const ui = await context.newPage()
+    await ui.addInitScript(observeSettingsMessages)
+    await ui.addInitScript(selectRealHostAtTabsBoundary, { extensionId, hostURL: page.url() })
+    await ui.goto(popupURL)
+    await until(() => ui.getByRole("button", { name: /^Translate/ }).isVisible(), "real popup document selected the actual host through native tabs metadata")
+    return { ui, mode: "popup document with real native-tabs selection boundary", nativePopupUnavailable: popupFallbackReason }
+  }
+
+  await check("settings-popup-message-failure-recovers", async () => {
+    const name = "settings-popup-message-failure-recovers"
+    await prepareHost(name, "<p>The popup must confirm the actual host manager before showing page translation as enabled.</p>")
+    await configure({ uiLocale: "en" })
+    const oldWorker = await extensionWorker()
+    const tabId = await oldWorker.evaluate(async url =>
+      (await globalThis.chrome.tabs.query({})).find(tab => tab.url === url)?.id, page.url())
+    assert.equal(typeof tabId, "number", "the popup must act on the real fixture host tab")
+    // A genuine extension reload removes the old page's message receiver.
+    // The popup request still reaches the real new background and Chrome tabs
+    // messaging produces the transport failure; no message reply is fabricated.
+    try {
+      await oldWorker.evaluate(() => globalThis.chrome.runtime.reload())
+    }
+    catch (error) {
+      if (!/closed|destroyed|restarted/i.test(error.message))
+        throw error
+    }
+    let worker
+    await until(() => {
+      worker = context.serviceWorkers().find(candidate => candidate !== oldWorker && new URL(candidate.url()).host === extensionId)
+      return !!worker
+    }, "a fresh real extension worker started after reload")
+    await until(async () => await page.locator("[data-vibe-reading-host-toast]").count() === 0, "old host context disposed after the real extension reload")
+    let opened = await openHostPopup()
+    try {
+      await opened.ui.getByRole("button", { name: /^Translate/ }).click()
+      await until(async () => await opened.ui.evaluate(() =>
+        globalThis.__E2E_SETTINGS_MESSAGES__.calls.some(call => call.type === "tryToSetEnablePageTranslationByTabId" && call.settled)),
+      "the real background translation request returned")
+      await opened.ui.evaluate(() => new Promise(resolve =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve))))
+      assert.equal(await opened.ui.getByRole("button", { name: "Show Original", exact: true }).count(), 0,
+        "a failed host-manager message must not appear as a successful translation toggle")
+      await until(async () => await opened.ui.locator("[data-sonner-toast]").count() > 0,
+        "the popup exposes the real manager transport failure")
+      assert.equal(await worker.evaluate(async id =>
+        (await globalThis.chrome.storage.session.get(`translationState.${id}`))[`translationState.${id}`]?.enabled === true, tabId), false,
+      "the failed request must not manufacture an enabled page state")
+      await record(`${name}-failed`, opened.ui, { popupMode: opened.mode, nativePopupUnavailable: opened.nativePopupUnavailable })
+      await opened.ui.close()
+      opened = null
+      await page.bringToFront()
+      await page.reload()
+      await until(async () => await page.locator("[data-vibe-reading-host-toast]").count() === 1, "refresh restored the real host message receiver")
+      opened = await openHostPopup()
+      await opened.ui.getByRole("button", { name: /^Translate/ }).click()
+      await until(() => hasTranslation(page, "A reader revisits"), "a subsequent popup request translated the real host")
+      await until(() => opened.ui.getByRole("button", { name: "Show Original", exact: true }).isVisible(),
+        "popup reflects the confirmed active manager")
+      await opened.ui.getByRole("button", { name: "Show Original", exact: true }).click()
+      await until(async () => await publicMessage("getEnablePageTranslationFromContentScript") === false
+        && await page.locator(".vibe-reading-translated-content-wrapper").count() === 0,
+      "the real popup stop restored the original page and persisted disabled state")
+      await until(() => opened.ui.getByRole("button", { name: /^Translate/ }).isVisible(),
+        "popup reflects the confirmed stopped manager")
+    }
+    finally {
+      if (opened && !opened.ui.isClosed()) {
+        await record(`${name}-final`, opened.ui, { popupMode: opened.mode, nativePopupUnavailable: opened.nativePopupUnavailable })
+        await opened.ui.close()
+      }
+    }
+  })
+}

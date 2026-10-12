@@ -5,6 +5,7 @@ import { getRandomUUID } from "@/utils/crypto-polyfill"
 import { isHTMLElement } from "../dom/filter"
 import { findNearestAncestorBlockNodeAt } from "../dom/find"
 import { walkAndLabelElement } from "../dom/traversal"
+import { getDocumentTranslationSignal } from "./core/translation-operations"
 import { translateWalkedElement } from "./core/translation-walker"
 import { validateTranslationConfigAndToast } from "./translate-text"
 
@@ -14,8 +15,8 @@ export { translateWalkedElement } from "./core/translation-walker"
 export { removeAllTranslatedWrapperNodes } from "./dom/translation-cleanup"
 
 // High-level orchestration function
-export async function removeOrShowNodeTranslation(point: Point, config: Config): Promise<boolean> {
-  if (!isContentScriptActive())
+export async function removeOrShowNodeTranslation(point: Point, config: Config, signal = getDocumentTranslationSignal()): Promise<boolean> {
+  if (!isContentScriptActive() || signal.aborted)
     return false
   const node = findNearestAncestorBlockNodeAt(point)
 
@@ -32,6 +33,6 @@ export async function removeOrShowNodeTranslation(point: Point, config: Config):
 
   const id = getRandomUUID()
   walkAndLabelElement(node, id, config)
-  await translateWalkedElement(node, id, config, true)
-  return isContentScriptActive()
+  await translateWalkedElement(node, id, config, true, signal)
+  return isContentScriptActive() && !signal.aborted && node.isConnected
 }

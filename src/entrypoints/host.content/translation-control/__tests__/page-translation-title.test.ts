@@ -122,7 +122,7 @@ describe("pageTranslationManager title handling", () => {
       webContent: "Article body",
     })
     mockValidateTranslationConfigAndToast.mockReturnValue(true)
-    mockSendMessage.mockResolvedValue(undefined)
+    mockSendMessage.mockImplementation(async (type: string) => type === "setAndNotifyPageTranslationStateChangedByManager" ? true : undefined)
   })
 
   it("does not prime webpage context on start for non-llm translation", async () => {
