@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { LANG_CODE_TO_EN_NAME } from "@/definitions"
 import { isAPIProviderConfig, isLLMProviderConfig } from "@/types/config/provider"
 import { getProviderConfigById } from "@/utils/config/helpers"
+import { assertContentScriptActive } from "@/utils/content-script/lifecycle"
 import { i18n } from "@/utils/i18n"
 
 import { logger } from "@/utils/logger"
@@ -122,6 +123,7 @@ export async function translateTextCore(options: TranslateTextOptions): Promise<
   // Add extra hash tags for cache differentiation
   hashComponents.push(...extraHashTags)
 
+  assertContentScriptActive()
   return await sendMessage("enqueueTranslateRequest", {
     text: preparedText,
     langConfig,

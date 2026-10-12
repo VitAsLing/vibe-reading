@@ -19,7 +19,7 @@ export function ErrorButton({ error }: { error: APICallError }) {
         <IconAlertCircle className="size-4 text-red-500!" />
         <AlertTitle>Translation Error</AlertTitle>
         <AlertDescription className="break-all">
-          <StatusCode statusCode={error.statusCode ?? 500} />
+          <StatusCode statusCode={error.statusCode} />
           <p className="text-zinc-900 dark:text-zinc-100">{error.message || "Something went wrong"}</p>
         </AlertDescription>
       </HoverCardContent>
@@ -27,7 +27,7 @@ export function ErrorButton({ error }: { error: APICallError }) {
   )
 }
 
-function StatusCode({ statusCode }: { statusCode: number }) {
+function StatusCode({ statusCode }: { statusCode: number | undefined }) {
   const getStatusCodeColor = (code: number) => {
     const firstDigit = Math.floor(code / 100)
     switch (firstDigit) {
@@ -41,10 +41,10 @@ function StatusCode({ statusCode }: { statusCode: number }) {
 
   return (
     <div className="flex items-center gap-2 mb-2">
-      <div className={`w-2 h-2 rounded-full ${getStatusCodeColor(statusCode)}`} />
+      <div className={`w-2 h-2 rounded-full ${statusCode === undefined ? "bg-gray-500" : getStatusCodeColor(statusCode)}`} />
       <span className="text-sm font-medium">
         Status Code:
-        {statusCode}
+        {statusCode ?? "Unknown"}
       </span>
     </div>
   )

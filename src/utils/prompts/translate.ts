@@ -1,6 +1,7 @@
 import type { Config } from "@/types/config/config"
 import type { WebPagePromptContext } from "@/types/content"
 import { getLocalConfig } from "@/utils/config/storage"
+import { assertContentScriptActive } from "@/utils/content-script/lifecycle"
 import { DEFAULT_CONFIG } from "../constants/config"
 import {
   DEFAULT_BATCH_TRANSLATE_PROMPT,
@@ -88,6 +89,7 @@ export async function getTranslatePrompt(
   input: string,
   options?: TranslatePromptOptions<WebPagePromptContext>,
 ): Promise<TranslatePromptResult> {
+  assertContentScriptActive()
   const config = await getLocalConfig() ?? DEFAULT_CONFIG
   return getTranslatePromptFromConfig(config.translate, targetLang, input, options)
 }

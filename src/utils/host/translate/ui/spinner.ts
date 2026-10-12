@@ -3,9 +3,11 @@ import * as React from "react"
 import textSmallCSS from "@/assets/styles/text-small.css?inline"
 import themeCSS from "@/assets/styles/theme.css?inline"
 import { TranslationError } from "@/components/translation/error"
+import { isContentScriptActive, isContentScriptInvalidationError, reportContentScriptError } from "@/utils/content-script/lifecycle"
 import { createReactShadowHost } from "@/utils/react-shadow-host/create-shadow-host"
 import { TRANSLATION_ERROR_CONTAINER_CLASS } from "../../../constants/dom-labels"
 import { getContainingShadowRoot, getOwnerDocument } from "../../dom/node"
+import { removeShadowHostInTranslatedWrapper } from "../dom/translation-cleanup"
 import { translateTextForPage } from "../translate-variants"
 import { ensurePresetStyles } from "./style-injector"
 
@@ -83,16 +85,33 @@ export async function getTranslatedTextAndRemoveSpinner(
   textContent: string,
   spinner: HTMLElement,
   translatedWrapperNode: HTMLElement,
+  signal?: AbortSignal,
 ): Promise<string | undefined> {
   let translatedText: string | undefined
 
   try {
+    if (signal?.aborted)
+      return undefined
     translatedText = await translateTextForPage(textContent)
+    if (!isContentScriptActive() || signal?.aborted) {
+      removeShadowHostInTranslatedWrapper(translatedWrapperNode)
+      translatedWrapperNode.remove()
+      return undefined
+    }
   }
   catch (error) {
+    if (signal?.aborted)
+      return undefined
+    if (isContentScriptInvalidationError(error) || !isContentScriptActive()) {
+      reportContentScriptError("Translation failed after content script invalidation:", error)
+      removeShadowHostInTranslatedWrapper(translatedWrapperNode)
+      translatedWrapperNode.remove()
+      return undefined
+    }
     const errorComponent = React.createElement(TranslationError, {
       nodes,
       error: error as APICallError,
+      signal,
     })
 
     const container = createReactShadowHost(

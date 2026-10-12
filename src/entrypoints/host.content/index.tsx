@@ -2,6 +2,7 @@ import "@/utils/zod-config"
 import { defineContentScript } from "#imports"
 import { getLocalConfig } from "@/utils/config/storage"
 import { DEFAULT_CONFIG } from "@/utils/constants/config"
+import { initializeContentScriptLifecycle, isContentScriptActive, isContentScriptInvalidationError } from "@/utils/content-script/lifecycle"
 import { loadUiLocaleMessages } from "@/utils/i18n"
 
 declare global {
@@ -18,11 +19,32 @@ export default defineContentScript({
     if (window.__READ_FROG_HOST_INJECTED__)
       return
     window.__READ_FROG_HOST_INJECTED__ = true
+    ctx.onInvalidated(() => {
+      window.__READ_FROG_HOST_INJECTED__ = false
+    })
+    initializeContentScriptLifecycle(ctx)
 
-    const initialConfig = await getLocalConfig()
-    await loadUiLocaleMessages(initialConfig?.uiLocale ?? DEFAULT_CONFIG.uiLocale, { applyDocumentLang: false })
+    try {
+      if (!isContentScriptActive())
+        return
+      const initialConfig = await getLocalConfig()
+      if (!isContentScriptActive())
+        return
+      await loadUiLocaleMessages(initialConfig?.uiLocale ?? DEFAULT_CONFIG.uiLocale, { applyDocumentLang: false })
+      if (!isContentScriptActive())
+        return
 
-    const { bootstrapHostContent } = await import("./runtime")
-    await bootstrapHostContent(ctx, initialConfig)
+      const { bootstrapHostContent } = await import("./runtime")
+      if (isContentScriptActive()) {
+        await bootstrapHostContent(ctx, initialConfig)
+      }
+    }
+    catch (error) {
+      const invalidated = isContentScriptInvalidationError(error)
+      ctx.notifyInvalidated()
+      if (!invalidated) {
+        throw error
+      }
+    }
   },
 })

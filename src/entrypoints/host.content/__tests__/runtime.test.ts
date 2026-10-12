@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @vitest-environment-options {"url":"https://example.com/articles/1"}
 
 import type { ContentScriptContext } from "#imports"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -21,6 +22,7 @@ const {
     isActive: boolean
     start: ReturnType<typeof vi.fn>
     stop: ReturnType<typeof vi.fn>
+    dispose: ReturnType<typeof vi.fn>
     restart: ReturnType<typeof vi.fn>
     registerPageTranslationTriggers: ReturnType<typeof vi.fn>
   }>,
@@ -82,6 +84,10 @@ vi.mock("../translation-control/page-translation", () => ({
       this.isActive = false
     })
 
+    dispose = vi.fn(() => {
+      this.isActive = false
+    })
+
     restart = vi.fn(async () => {
       this.isActive = true
     })
@@ -95,12 +101,15 @@ vi.mock("../translation-control/page-translation", () => ({
 }))
 
 function createContentScriptContext() {
-  const invalidationCallbacks: Array<() => void> = []
+  const invalidationCallbacks = new Set<() => void>()
 
   return {
     ctx: {
       onInvalidated: (callback: () => void) => {
-        invalidationCallbacks.push(callback)
+        invalidationCallbacks.add(callback)
+        return () => {
+          invalidationCallbacks.delete(callback)
+        }
       },
     } as ContentScriptContext,
     invalidate: () => {
@@ -122,6 +131,7 @@ describe("bootstrapHostContent URL changes", () => {
     vi.clearAllMocks()
     messageHandlers.clear()
     managerInstances.length = 0
+    window.history.replaceState(null, "", "/articles/1")
 
     mockSetupUrlChangeListener.mockReturnValue(vi.fn())
     mockMountHostToast.mockReturnValue(vi.fn())
@@ -152,6 +162,7 @@ describe("bootstrapHostContent URL changes", () => {
     await bootstrapHostContent(ctx, null)
     const manager = managerInstances[0]
 
+    window.history.pushState(null, "", "https://example.com/articles/2?ref=nav#comments")
     window.dispatchEvent(new CustomEvent("extension:URLChange", {
       detail: {
         from: "https://example.com/articles/1",
@@ -176,6 +187,7 @@ describe("bootstrapHostContent URL changes", () => {
     await bootstrapHostContent(ctx, null)
     const manager = managerInstances[0]
 
+    window.history.pushState(null, "", "https://example.com/articles/2")
     window.dispatchEvent(new CustomEvent("extension:URLChange", {
       detail: {
         from: "https://example.com/articles/1",

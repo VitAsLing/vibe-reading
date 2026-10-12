@@ -1,6 +1,7 @@
 import type { Config } from "@/types/config/config"
 import { isLLMProviderConfig } from "@/types/config/provider"
 import { resolveProviderConfig } from "@/utils/constants/feature-providers"
+import { assertContentScriptActive } from "@/utils/content-script/lifecycle"
 import { getLocalConfig } from "../../config/storage"
 import { prepareTranslationText } from "./text-preparation"
 import { translateTextCore } from "./translate-text"
@@ -8,7 +9,9 @@ import { getOrCreateWebPageContext } from "./webpage-context"
 import { getOrGenerateWebPageSummary } from "./webpage-summary"
 
 async function getConfigOrThrow(): Promise<Config> {
+  assertContentScriptActive()
   const config = await getLocalConfig()
+  assertContentScriptActive()
   if (!config) {
     throw new Error("No global config when translate text")
   }
@@ -25,6 +28,7 @@ async function getWebPagePromptContext(
   }
 
   const webPageContext = await getOrCreateWebPageContext()
+  assertContentScriptActive()
   if (!webPageContext) {
     return undefined
   }

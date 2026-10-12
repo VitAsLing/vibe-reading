@@ -1,6 +1,7 @@
 import type { CachedWebPageContext } from "./webpage-context"
 import type { ProviderConfig } from "@/types/config/provider"
 import { isLLMProviderConfig } from "@/types/config/provider"
+import { assertContentScriptActive } from "@/utils/content-script/lifecycle"
 import { sendMessage } from "@/utils/message"
 
 export async function getOrGenerateWebPageSummary(
@@ -17,6 +18,7 @@ export async function getOrGenerateWebPageSummary(
     return null
   }
 
+  assertContentScriptActive()
   const summary = await sendMessage("getOrGenerateWebPageSummary", {
     webTitle,
     webContent,
