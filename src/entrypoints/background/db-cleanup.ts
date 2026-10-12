@@ -11,23 +11,6 @@ export const SUMMARY_CACHE_CLEANUP_ALARM = "summary-cache-cleanup"
 export const SUMMARY_CACHE_MAX_AGE_MINUTES = 7 * 24 * 60
 
 export async function setUpDatabaseCleanup() {
-  // Set up periodic alarms (only if they don't exist)
-  const existingCacheAlarm = await browser.alarms.get(TRANSLATION_CACHE_CLEANUP_ALARM)
-  if (!existingCacheAlarm) {
-    void browser.alarms.create(TRANSLATION_CACHE_CLEANUP_ALARM, {
-      delayInMinutes: 1,
-      periodInMinutes: CHECK_INTERVAL_MINUTES,
-    })
-  }
-
-  const existingSummaryAlarm = await browser.alarms.get(SUMMARY_CACHE_CLEANUP_ALARM)
-  if (!existingSummaryAlarm) {
-    void browser.alarms.create(SUMMARY_CACHE_CLEANUP_ALARM, {
-      delayInMinutes: 1,
-      periodInMinutes: CHECK_INTERVAL_MINUTES,
-    })
-  }
-
   // Register the alarm listener
   browser.alarms.onAlarm.addListener(async (alarm) => {
     if (alarm.name === TRANSLATION_CACHE_CLEANUP_ALARM) {
@@ -37,6 +20,23 @@ export async function setUpDatabaseCleanup() {
       await cleanupOldSummaryCache()
     }
   })
+
+  // Set up periodic alarms (only if they don't exist)
+  const existingCacheAlarm = await browser.alarms.get(TRANSLATION_CACHE_CLEANUP_ALARM)
+  if (!existingCacheAlarm) {
+    await browser.alarms.create(TRANSLATION_CACHE_CLEANUP_ALARM, {
+      delayInMinutes: 1,
+      periodInMinutes: CHECK_INTERVAL_MINUTES,
+    })
+  }
+
+  const existingSummaryAlarm = await browser.alarms.get(SUMMARY_CACHE_CLEANUP_ALARM)
+  if (!existingSummaryAlarm) {
+    await browser.alarms.create(SUMMARY_CACHE_CLEANUP_ALARM, {
+      delayInMinutes: 1,
+      periodInMinutes: CHECK_INTERVAL_MINUTES,
+    })
+  }
 }
 
 async function cleanupOldTranslationCache() {

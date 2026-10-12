@@ -18,10 +18,19 @@ export const detectedCodeAtom = atom(
 
 // onMount on base atom - gets triggered when derived atom subscribes
 baseDetectedCodeAtom.onMount = (setAtom: (newValue: LangCodeISO6393) => void) => {
+  let mounted = true
+  let version = 0
   const refreshDetectedCode = () => {
+    const requestVersion = ++version
     void sendMessage("getDetectedCode", undefined)
-      .then(detectedCode => setAtom(normalizeDetectedCode(detectedCode)))
+      .then((detectedCode) => {
+        if (mounted && requestVersion === version) {
+          setAtom(normalizeDetectedCode(detectedCode))
+        }
+      })
       .catch((error) => {
+        if (!mounted || requestVersion !== version)
+          return
         logger.warn("Failed to refresh active tab detected language", error)
         setAtom(DEFAULT_DETECTED_CODE)
       })
@@ -30,6 +39,9 @@ baseDetectedCodeAtom.onMount = (setAtom: (newValue: LangCodeISO6393) => void) =>
   refreshDetectedCode()
 
   const cleanupDetectedCodeListener = onMessage("detectedPageLanguageChanged", (msg) => {
+    if (!mounted)
+      return
+    version++
     setAtom(normalizeDetectedCode(msg.data.detectedCode))
   })
 
@@ -42,6 +54,8 @@ baseDetectedCodeAtom.onMount = (setAtom: (newValue: LangCodeISO6393) => void) =>
   document.addEventListener("visibilitychange", handleVisibilityChange)
 
   return () => {
+    mounted = false
+    version++
     cleanupDetectedCodeListener()
     document.removeEventListener("visibilitychange", handleVisibilityChange)
   }

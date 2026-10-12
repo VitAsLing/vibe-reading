@@ -1,8 +1,10 @@
 import type { ContentScriptContext } from "#imports"
 import type { Config } from "@/types/config/config"
-import { DEFAULT_CONFIG } from "@/utils/constants/config"
+import { storageAdapter } from "@/utils/atoms/storage-adapter"
+import { CONFIG_STORAGE_KEY, DEFAULT_CONFIG } from "@/utils/constants/config"
 import { isContentScriptActive, reportContentScriptError, runContentScriptTask } from "@/utils/content-script/lifecycle"
 import { detectPageLanguageLightweight } from "@/utils/content/page-language"
+import { cancelDocumentTranslations, initializeTranslationOperations } from "@/utils/host/translate/core/translation-operations"
 import { ensurePresetStyles } from "@/utils/host/translate/ui/style-injector"
 import { logger } from "@/utils/logger"
 import { onMessage, sendMessage } from "@/utils/message"
@@ -10,6 +12,7 @@ import { areSamePageTranslationOrigin } from "@/utils/url"
 import { setupUrlChangeListener } from "./listen"
 import { mountHostToast } from "./mount-host-toast"
 import { bindTranslationShortcutKey } from "./translation-control/bind-translation-shortcut"
+import { handleTranslationModeChange } from "./translation-control/handle-config-change"
 import { registerNodeTranslationTriggers } from "./translation-control/node-translation"
 import { PageTranslationManager } from "./translation-control/page-translation"
 
@@ -40,6 +43,7 @@ export async function bootstrapHostContent(ctx: ContentScriptContext, initialCon
   try {
     if (!isContentScriptActive())
       return
+    addCleanup(initializeTranslationOperations())
     ensurePresetStyles(document)
     addCleanup(setupUrlChangeListener())
     if (window === window.top)
@@ -54,6 +58,12 @@ export async function bootstrapHostContent(ctx: ContentScriptContext, initialCon
     })
     addCleanup(() => manager.dispose())
     addCleanup(manager.registerPageTranslationTriggers())
+    let previousConfig = initialConfig
+    addCleanup(storageAdapter.watch<Config>(CONFIG_STORAGE_KEY, (config) => {
+      const previous = previousConfig
+      previousConfig = config
+      handleTranslationModeChange(config, previous, manager)
+    }))
     addCleanup(await bindTranslationShortcutKey(manager))
     if (!isContentScriptActive())
       return
@@ -100,6 +110,9 @@ export async function bootstrapHostContent(ctx: ContentScriptContext, initialCon
             manager.stop()
           }
         }
+        else {
+          cancelDocumentTranslations()
+        }
         if (window === window.top) {
           await detectAndReportPageLanguage(to)
         }
@@ -113,17 +126,20 @@ export async function bootstrapHostContent(ctx: ContentScriptContext, initialCon
     window.addEventListener("extension:URLChange", handleExtensionUrlChange)
     addCleanup(() => window.removeEventListener("extension:URLChange", handleExtensionUrlChange))
 
-    const toggleTranslation = (enabled: boolean) => {
-      if (!isContentScriptActive() || enabled === manager.isActive)
-        return
+    const toggleTranslation = async (enabled: boolean) => {
+      if (!isContentScriptActive())
+        return false
       if (enabled)
-        runContentScriptTask(() => manager.start(), "Failed to start page translation:")
-      else
+        await manager.start()
+      else if (manager.isActive)
         manager.stop()
+      return isContentScriptActive() && manager.isEnabled
     }
     addCleanup(onMessage("askManagerToTogglePageTranslation", msg => toggleTranslation(msg.data.enabled)))
     if (window !== window.top) {
-      addCleanup(onMessage("notifyTranslationStateChanged", msg => toggleTranslation(msg.data.enabled)))
+      addCleanup(onMessage("notifyTranslationStateChanged", async (msg) => {
+        await toggleTranslation(msg.data.enabled)
+      }))
     }
     else {
       addCleanup(onMessage("refreshDetectedPageLanguage", () => {

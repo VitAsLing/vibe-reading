@@ -8,6 +8,7 @@ import { requestQueueConfigSchema } from "@/types/config/translate"
 import { configFieldsAtomMap } from "@/utils/atoms/config"
 import { MIN_TRANSLATE_CAPACITY, MIN_TRANSLATE_RATE } from "@/utils/constants/translate"
 import { i18n } from "@/utils/i18n"
+import { logger } from "@/utils/logger"
 import { sendMessage } from "@/utils/message"
 import { ConfigCard } from "../../components/config-card"
 
@@ -59,6 +60,28 @@ function TranslateNumberSelector({ property }: { property: KeyOfRequestQueueConf
 
   const info = propertyInfo[property]
 
+  const applyConfigValue = async (newConfigValue: number) => {
+    let saveConfirmed = false
+    try {
+      await setTranslateConfig({
+        requestQueueConfig: {
+          ...translateConfig.requestQueueConfig,
+          [property]: newConfigValue,
+        },
+      })
+      saveConfirmed = true
+      await sendMessage("setTranslateRequestQueueConfig", {
+        [property]: newConfigValue,
+      })
+    }
+    catch (error) {
+      logger.warn("Translation request settings could not be applied:", error)
+      if (saveConfirmed) {
+        toast.error(error instanceof Error ? error.message : i18n.t("errorRecovery.title"))
+      }
+    }
+  }
+
   return (
     <Field orientation="responsive">
       <FieldContent className="self-center">
@@ -77,16 +100,7 @@ function TranslateNumberSelector({ property }: { property: KeyOfRequestQueueConf
           const newConfigValue = Number(e.target.value)
           const configParseResult = requestQueueConfigSchema.partial().safeParse({ [property]: newConfigValue })
           if (configParseResult.success) {
-            void setTranslateConfig({
-              ...translateConfig,
-              requestQueueConfig: {
-                ...translateConfig.requestQueueConfig,
-                [property]: newConfigValue,
-              },
-            })
-            void sendMessage("setTranslateRequestQueueConfig", {
-              [property]: newConfigValue,
-            })
+            void applyConfigValue(newConfigValue)
           }
           else {
             toast.error(configParseResult.error?.issues[0].message)

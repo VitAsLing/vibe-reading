@@ -8,6 +8,7 @@ import { batchQueueConfigSchema } from "@/types/config/translate"
 import { configFieldsAtomMap } from "@/utils/atoms/config"
 import { MIN_BATCH_CHARACTERS, MIN_BATCH_ITEMS } from "@/utils/constants/translate"
 import { i18n } from "@/utils/i18n"
+import { logger } from "@/utils/logger"
 import { sendMessage } from "@/utils/message"
 import { ConfigCard } from "../../components/config-card"
 
@@ -53,6 +54,28 @@ function BatchNumberSelector({ property }: { property: KeyOfBatchQueueConfig }) 
 
   const info = propertyInfo[property]
 
+  const applyConfigValue = async (newConfigValue: number) => {
+    let saveConfirmed = false
+    try {
+      await setTranslateConfig({
+        batchQueueConfig: {
+          ...translateConfig.batchQueueConfig,
+          [property]: newConfigValue,
+        },
+      })
+      saveConfirmed = true
+      await sendMessage("setTranslateBatchQueueConfig", {
+        [property]: newConfigValue,
+      })
+    }
+    catch (error) {
+      logger.warn("Translation batch settings could not be applied:", error)
+      if (saveConfirmed) {
+        toast.error(error instanceof Error ? error.message : i18n.t("errorRecovery.title"))
+      }
+    }
+  }
+
   return (
     <Field orientation="responsive">
       <FieldContent className="self-center">
@@ -71,16 +94,7 @@ function BatchNumberSelector({ property }: { property: KeyOfBatchQueueConfig }) 
           const newConfigValue = Number(e.target.value)
           const configParseResult = batchQueueConfigSchema.partial().safeParse({ [property]: newConfigValue })
           if (configParseResult.success) {
-            void setTranslateConfig({
-              ...translateConfig,
-              batchQueueConfig: {
-                ...translateConfig.batchQueueConfig,
-                [property]: newConfigValue,
-              },
-            })
-            void sendMessage("setTranslateBatchQueueConfig", {
-              [property]: newConfigValue,
-            })
+            void applyConfigValue(newConfigValue)
           }
           else {
             toast.error(configParseResult.error?.issues[0].message)

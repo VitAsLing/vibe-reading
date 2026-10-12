@@ -35,6 +35,7 @@ errorRecovery:
   resetAction: 設定をデフォルトにリセット
   resetSuccess: 復旧が完了しました。設定はリセットされました
   resetFailed: 復旧に失敗しました。設定をリセットできませんでした
+  saveFailed: 設定が保存されたことを確認できません。もう一度お試しください。
   errorDetails: エラー詳細
   resetDialog:
     title: 設定をリセットしますか？

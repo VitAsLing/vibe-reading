@@ -24,6 +24,7 @@ import {
 } from "@/utils/config/helpers"
 import { buildFeatureProviderPatch } from "@/utils/constants/feature-providers"
 import { i18n } from "@/utils/i18n"
+import { logger } from "@/utils/logger"
 import { cn } from "@/utils/styles/utils"
 import { selectedProviderIdAtom } from "../atoms"
 import { duplicateProvider } from "../utils"
@@ -141,7 +142,7 @@ export function ProviderConfigForm() {
           )}
         </div>
         <div className="flex justify-between mt-8">
-          <Button type="button" variant="outline" onClick={handleDuplicate}>
+          <Button type="button" variant="outline" onClick={() => { void handleDuplicate().catch(error => logger.warn("Settings action did not complete:", error)) }}>
             {i18n.t("options.apiProviders.form.duplicate")}
           </Button>
           <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
@@ -155,7 +156,7 @@ export function ProviderConfigForm() {
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>{i18n.t("options.apiProviders.form.deleteDialog.cancel")}</AlertDialogCancel>
-                <AlertDialogAction variant="destructive" onClick={handleDelete}>{i18n.t("options.apiProviders.form.deleteDialog.confirm")}</AlertDialogAction>
+                <AlertDialogAction variant="destructive" onClick={() => { void handleDelete().catch(error => logger.warn("Settings action did not complete:", error)) }}>{i18n.t("options.apiProviders.form.deleteDialog.confirm")}</AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>

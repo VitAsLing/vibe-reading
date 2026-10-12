@@ -35,6 +35,7 @@ errorRecovery:
   resetAction: Varsayılan ayarlara sıfırla
   resetSuccess: Kurtarma tamamlandı. Ayarlar sıfırlandı
   resetFailed: Kurtarma başarısız oldu. Ayarlar sıfırlanamadı
+  saveFailed: Ayarların kaydedildiği doğrulanamadı. Lütfen tekrar deneyin.
   errorDetails: Hata ayrıntıları
   resetDialog:
     title: Ayarlar sıfırlansın mı?

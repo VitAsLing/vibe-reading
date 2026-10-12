@@ -35,6 +35,7 @@ errorRecovery:
   resetAction: 重設為預設設定
   resetSuccess: 復原完成，設定已重設
   resetFailed: 復原失敗，無法重設設定
+  saveFailed: 無法確認設定已儲存，請重試。
   errorDetails: 錯誤詳細資訊
   resetDialog:
     title: 確認重設設定？

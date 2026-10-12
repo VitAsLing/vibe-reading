@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/base-ui/button"
 import { writeConfigAtom } from "@/utils/atoms/config"
 import { DEFAULT_CONFIG } from "@/utils/constants/config"
 import { i18n } from "@/utils/i18n"
+import { logger } from "@/utils/logger"
 import { ConfigCard } from "../../components/config-card"
 
 export function ResetConfig() {
@@ -44,7 +45,7 @@ export function ResetConfig() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{i18n.t("options.config.resetConfig.dialog.cancel")}</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={resetToDefaultConfig}>
+            <AlertDialogAction variant="destructive" onClick={() => { void resetToDefaultConfig().catch(error => logger.warn("Settings action did not complete:", error)) }}>
               {i18n.t("options.config.resetConfig.dialog.confirm")}
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -1,5 +1,6 @@
 import { useAtomValue } from "jotai"
 import { useEffect, useRef, useState } from "react"
+import { toast } from "sonner"
 import { Field, FieldLabel } from "@/components/ui/base-ui/field"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/base-ui/select"
 import { Textarea } from "@/components/ui/base-ui/textarea"
@@ -19,7 +20,7 @@ export function StylePreview() {
 
   useEffect(() => {
     if (blockContentRef.current) {
-      void decorateTranslationNode(blockContentRef.current, translationNodeStyle)
+      void decorateTranslationNode(blockContentRef.current, translationNodeStyle).catch(error => toast.error(String(error)))
     }
   }, [translationNodeStyle])
 

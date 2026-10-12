@@ -8,6 +8,7 @@ import * as React from "react"
 import { HashRouter } from "react-router"
 import AppToast from "@/components/app-toast"
 import { ThemeProvider } from "@/components/providers/theme-provider"
+import { renderBootstrapRecovery } from "@/components/recovery/bootstrap-recovery"
 import { RecoveryBoundary } from "@/components/recovery/recovery-boundary"
 import { SidebarProvider } from "@/components/ui/base-ui/sidebar"
 import { TooltipProvider } from "@/components/ui/base-ui/tooltip"
@@ -78,4 +79,4 @@ async function initApp() {
   ))
 }
 
-void initApp()
+void initApp().catch(error => renderBootstrapRecovery(document.getElementById("root")!, error))

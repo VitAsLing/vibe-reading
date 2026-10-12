@@ -35,6 +35,7 @@ errorRecovery:
   resetAction: Reset to default settings
   resetSuccess: Recovery completed. Settings have been reset
   resetFailed: Recovery failed. Unable to reset settings
+  saveFailed: Unable to confirm the settings were saved. Please try again.
   errorDetails: Error details
   resetDialog:
     title: Reset settings?

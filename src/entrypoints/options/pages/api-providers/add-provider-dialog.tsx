@@ -6,6 +6,7 @@ import { DialogContent, DialogHeader, DialogTitle } from "@/components/ui/base-u
 import { configFieldsAtomMap } from "@/utils/atoms/config"
 import { API_PROVIDER_ITEMS, PROVIDER_GROUPS } from "@/utils/constants/providers"
 import { i18n } from "@/utils/i18n"
+import { logger } from "@/utils/logger"
 import { selectedProviderIdAtom } from "./atoms"
 import { addProvider } from "./utils"
 
@@ -14,8 +15,14 @@ export default function AddProviderDialog({ onClose }: { onClose: () => void }) 
   const setSelectedProviderId = useSetAtom(selectedProviderIdAtom)
 
   const handleAddProvider = async (providerType: APIProviderTypes) => {
-    await addProvider(providerType, providersConfig, setProvidersConfig, setSelectedProviderId)
-    onClose()
+    try {
+      await addProvider(providerType, providersConfig, setProvidersConfig, setSelectedProviderId)
+      onClose()
+    }
+    catch (error) {
+      // The configuration writer already presents the failed save to the user.
+      logger.warn("Provider could not be added:", error)
+    }
   }
 
   return (

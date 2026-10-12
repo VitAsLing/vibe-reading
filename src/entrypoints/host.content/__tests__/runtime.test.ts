@@ -76,6 +76,10 @@ vi.mock("../translation-control/node-translation", () => ({
 vi.mock("../translation-control/page-translation", () => ({
   PageTranslationManager: class {
     isActive = false
+    get isEnabled() {
+      return this.isActive
+    }
+
     start = vi.fn(async () => {
       this.isActive = true
     })

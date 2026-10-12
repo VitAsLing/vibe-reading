@@ -8,6 +8,7 @@ import { getRandomUUID } from "@/utils/crypto-polyfill"
 import { hasNoWalkAncestor, isDontWalkIntoAndDontTranslateAsChildElement, isDontWalkIntoButTranslateAsChildElement, isHTMLElement } from "@/utils/host/dom/filter"
 import { deepQueryTopLevelSelector } from "@/utils/host/dom/find"
 import { walkAndLabelElement } from "@/utils/host/dom/traversal"
+import { cancelDocumentTranslations, getDocumentTranslationSignal } from "@/utils/host/translate/core/translation-operations"
 import { removeAllTranslatedWrapperNodes, translateWalkedElement } from "@/utils/host/translate/node-manipulation"
 import { validateTranslationConfigAndToast } from "@/utils/host/translate/translate-text"
 import { translateTextForPageTitle } from "@/utils/host/translate/translate-variants"
@@ -30,8 +31,8 @@ export class PageTranslationManager {
 
   private disposed = false
   private isStarting = false
+  private startPromise: Promise<void> | null = null
   private sessionVersion = 0
-  private translationAbortController: AbortController | null = null
   private isPageTranslating: boolean = false
   private intersectionObserver: IntersectionObserver | null = null
   private mutationObservers: MutationObserver[] = []
@@ -60,31 +61,35 @@ export class PageTranslationManager {
     return this.isPageTranslating || this.isStarting
   }
 
+  get isEnabled(): boolean {
+    return this.isPageTranslating
+  }
+
   async start(): Promise<void> {
     if (this.disposed || !isContentScriptActive())
       return
-    if (this.isPageTranslating || this.isStarting) {
+    if (this.startPromise) {
+      await this.startPromise
       return
     }
+    if (this.isPageTranslating)
+      return
 
     const version = ++this.sessionVersion
-    const controller = new AbortController()
-    this.translationAbortController = controller
+    const signal = getDocumentTranslationSignal()
     this.isStarting = true
-    try {
-      await this.startSession(version, controller.signal)
-    }
-    catch (error) {
-      if (version === this.sessionVersion) {
+    const task = this.startSession(version, signal).catch((error) => {
+      if (version === this.sessionVersion)
         this.stopInternal({ notify: isContentScriptActive() })
-      }
       throw error
-    }
-    finally {
+    }).finally(() => {
       if (version === this.sessionVersion) {
         this.isStarting = false
+        this.startPromise = null
       }
-    }
+    })
+    this.startPromise = task
+    await task
   }
 
   private isCurrentSession(version: number): boolean {
@@ -114,11 +119,11 @@ export class PageTranslationManager {
     }
 
     const providerConfig = resolveProviderConfig(config, "translate")
-    await sendMessage("setAndNotifyPageTranslationStateChangedByManager", {
+    const accepted = await sendMessage("setAndNotifyPageTranslationStateChangedByManager", {
       enabled: true,
       url: window.location.href,
     })
-    if (!this.isCurrentSession(version))
+    if (accepted !== true || !this.isCurrentSession(version))
       return
 
     this.isPageTranslating = true
@@ -190,9 +195,9 @@ export class PageTranslationManager {
     const wasActive = this.isActive
     this.sessionVersion++
     this.isStarting = false
+    this.startPromise = null
     this.isPageTranslating = false
-    this.translationAbortController?.abort()
-    this.translationAbortController = null
+    cancelDocumentTranslations()
 
     if (notify && wasActive) {
       runContentScriptTask(() => sendMessage("setAndNotifyPageTranslationStateChangedByManager", {
