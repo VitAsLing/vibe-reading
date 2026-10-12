@@ -1,6 +1,6 @@
 # Extension asynchronous boundary acceptance — 1.34.6
 
-The packaged production Chrome extension was loaded in Chrome for Testing 155.0.8059.39 with disposable profiles. All 67 bilingual and 70 translation-only scenarios passed. Chrome extension error collection was active; both lists were empty, with no unhandled browser errors or CDP exceptions.
+The packaged production Chrome extension was loaded in Chrome for Testing 155.0.8059.39 with disposable profiles. All 68 bilingual and 71 translation-only scenarios passed. Chrome extension error collection was active; both lists were empty, with no unhandled browser errors or CDP exceptions.
 
 ## Confirmed behavior
 
@@ -8,7 +8,7 @@ The original lifecycle suite remains intact. The additional scenarios exercise m
 
 Keyboard and mouse scenarios delay real configuration replies across release, movement, long-hold recognition, combinations, shortcut changes, successive independent presses, and editor focus, including SELECT and Shadow DOM. Native key autorepeat after cancelling a press in an editor does not restart that cancelled interaction after focus leaves the editor. Valid short presses retain their own coordinates and commit once; cancelled presses do not resume. The fixture reserves paragraph space and checks the saved second pointer location so a preceding bilingual result cannot shift its target and obscure the input-state regression.
 
-Tab-state and language scenarios delay real native storage acknowledgements and reads. Old enabled replies cannot restart stopped iframes; denied iframe starts do not translate; old navigation cleanup cannot erase the new session; old active-tab or popup language queries cannot overwrite a newer result. Popup translation waits for the top-frame manager's confirmed state and exposes a genuine missing-receiver failure after extension reload.
+Tab-state and language scenarios delay real native storage acknowledgements and reads. Old enabled replies cannot restart stopped iframes; denied iframe starts do not translate; old navigation cleanup cannot erase the new session; old active-tab or popup language queries cannot overwrite a newer result. Popup translation waits for the top-frame manager's confirmed state and exposes a genuine missing-receiver failure after extension reload. An obsolete start cannot confirm a newer mode restart while the current configuration reply is still pending; a fresh request joins that pending start and confirms it after acceptance.
 
 Popup/options bootstrap storage and locale failures show refresh recovery without resetting saved configuration. Failed settings saves roll back unconfirmed UI values, show feedback, and permit a later successful save. Provider addition keeps its dialog open on failure and does not leave a phantom provider. Failed rate/batch persistence sends no live queue mutation. Old theme/configuration reads cannot overwrite newer settings. Saved page shortcuts change or clear in the open page. Saved translation-mode changes restart an active session, including provider failure, retry, a second mode change, and source restoration.
 
@@ -30,7 +30,7 @@ The config/provider atom wrappers were removed because they created additional p
 
 ## Reproduction and artifacts
 
-Use the pinned pnpm 10.33.4. The checked commands are `pnpm type-check`, `pnpm lint`, and `pnpm build`; Chrome, Edge, Firefox, and sources packages were produced by `pnpm zip:all`. The existing hook checks passed without adding unit tests or reducing assertions; four existing fixtures were updated for accepted booleans, live browser metadata, and the new cancellation argument.
+Use the pinned pnpm 10.33.4. The checked commands are `pnpm type-check`, `pnpm lint`, and `pnpm build`; Chrome, Edge, Firefox, and sources packages were produced by `pnpm zip:all`. The existing hook checks passed without adding unit tests or reducing assertions; five existing fixtures were updated for accepted booleans, live browser metadata, and the new cancellation argument.
 
 ```sh
 npx --yes pnpm@10.33.4 exec playwright install chromium
@@ -40,7 +40,7 @@ npx --yes pnpm@10.33.4 e2e:extension .output/chrome-mv3 .output/acceptance/trans
 
 Set `E2E_BROWSER_EXECUTABLE` to the Chrome for Testing executable to reproduce the recorded browser version. Run modes sequentially. `--case=<name>` selects a focused scenario, and an unknown scenario fails. The same complete suite runs in CI against the packaged Chrome directory.
 
-Local baseline and fixed artifacts are in `.output/acceptance/lifecycle-audit-20261013/`. `packaged-final-summary.json`, per-mode `report.json`, `source-and-build.json`, `chrome-errors.json`, screenshots, metadata-only native API/message journals, and `trace.zip` record versions, environment, revision/status, source/script/build hashes, steps, and assertions. `package-verification.json` records ZIP versions and checksums; the Chrome ZIP payload matched the tested unpacked build byte for byte. Published assets are verified separately after merge. Immutable published 1.34.5 was used for the earlier red cases; the identical-HTML regression was additionally demonstrated against a frozen intermediate build before its correction.
+Local baseline and fixed artifacts are in `.output/acceptance/lifecycle-audit-20261013/`. `confirmed-summary.json`, per-mode `report.json`, `source-and-build.json`, `chrome-errors.json`, screenshots, metadata-only native API/message journals, and `trace.zip` record versions, environment, revision/status, source/script/build hashes, steps, and assertions. `confirmed-package-verification.json` records ZIP versions and checksums; the Chrome ZIP payload matched the tested unpacked build byte for byte. Published assets are verified separately after merge. Immutable published 1.34.5 was used for the earlier red cases; the identical-HTML regression was additionally demonstrated against a frozen intermediate build before its correction.
 
 ## Evidence limits
 

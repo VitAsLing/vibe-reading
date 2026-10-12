@@ -61,6 +61,10 @@ export class PageTranslationManager {
     return this.isPageTranslating || this.isStarting
   }
 
+  get isEnabled(): boolean {
+    return this.isPageTranslating
+  }
+
   async start(): Promise<void> {
     if (this.disposed || !isContentScriptActive())
       return

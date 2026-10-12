@@ -133,7 +133,7 @@ export async function bootstrapHostContent(ctx: ContentScriptContext, initialCon
         await manager.start()
       else if (manager.isActive)
         manager.stop()
-      return isContentScriptActive() && manager.isActive
+      return isContentScriptActive() && manager.isEnabled
     }
     addCleanup(onMessage("askManagerToTogglePageTranslation", msg => toggleTranslation(msg.data.enabled)))
     if (window !== window.top) {

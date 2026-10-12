@@ -246,6 +246,43 @@ export async function runSettingsBoundaryCases(h) {
     return { ui, mode: "popup document with real native-tabs selection boundary", nativePopupUnavailable: popupFallbackReason }
   }
 
+  await check("settings-popup-old-start-cannot-confirm-pending-mode-restart", async () => {
+    const name = "settings-popup-old-start-cannot-confirm-pending-mode-restart"
+    const text = "A popup confirmation must describe an accepted page session even when changing the saved mode supersedes a pending start."
+    await prepareHost(name, `<p id="popup-source">${text}</p>`)
+    const mode = h.translationMode
+    const other = mode === "bilingual" ? "translationOnly" : "bilingual"
+    const opened = await openHostPopup()
+    const oldLabel = "popup-old-start-config"
+    const currentLabel = "popup-current-start-config"
+    try {
+      await h.setContentStoragePlan([oldLabel, currentLabel].map(label => ({ area: "local", method: "get", key: "config", action: "hold", label })))
+      await opened.ui.getByRole("button", { name: /^Translate/ }).click()
+      await until(() => h.inContentWorld(`globalThis.__E2E_NATIVE_STORAGE__.held.some(entry => entry.label === ${JSON.stringify(oldLabel)})`), "the original manager start waits at real Chrome configuration storage")
+      await configure({ translate: { mode: other } })
+      await until(() => h.inContentWorld(`globalThis.__E2E_NATIVE_STORAGE__.held.some(entry => entry.label === ${JSON.stringify(currentLabel)})`), "changing the saved mode starts a newer session whose configuration is still pending")
+      await h.releaseContentStorage(oldLabel)
+      await until(() => opened.ui.evaluate(() => globalThis.__E2E_SETTINGS_MESSAGES__.calls.some(call => call.type === "tryToSetEnablePageTranslationByTabId" && call.settled)), "the obsolete start returned over real Chrome messaging")
+      await opened.ui.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+      assert.equal(await publicMessage("getEnablePageTranslationFromContentScript"), false, "the current pending start has not yet been accepted")
+      assert.equal(await opened.ui.getByRole("button", { name: "Show Original", exact: true }).count(), 0, "an obsolete start must not confirm the newer session while it is only starting")
+      await until(() => opened.ui.locator("[data-sonner-toast]").count().then(count => count > 0), "an unconfirmed start has visible failure feedback")
+      await opened.ui.getByRole("button", { name: /^Translate/ }).click()
+      await h.releaseContentStorage(currentLabel)
+      await until(() => hasTranslation(page, text), "the current saved mode translates after its real configuration reply arrives")
+      await until(() => opened.ui.getByRole("button", { name: "Show Original", exact: true }).isVisible(), "a new popup request confirms the accepted current session")
+      await opened.ui.getByRole("button", { name: "Show Original", exact: true }).click()
+      await until(async () => await publicMessage("getEnablePageTranslationFromContentScript") === false && await page.locator(".vibe-reading-translated-content-wrapper").count() === 0, "confirmed stop restores the source")
+      assert.equal(await h.originalDom("#popup-source"), text)
+    }
+    finally {
+      await record(name, opened.ui, { popupMode: opened.mode, nativePopupUnavailable: opened.nativePopupUnavailable })
+      await opened.ui.close()
+      await h.inContentWorld(`(() => { const state = globalThis.__E2E_NATIVE_STORAGE__; for (const label of ${JSON.stringify([oldLabel, currentLabel])}) if (state.held.some(entry => entry.label === label)) state.release(label); })()`)
+      await configure({ translate: { mode } })
+    }
+  })
+
   await check("settings-popup-message-failure-recovers", async () => {
     const name = "settings-popup-message-failure-recovers"
     await prepareHost(name, "<p>The popup must confirm the actual host manager before showing page translation as enabled.</p>")
