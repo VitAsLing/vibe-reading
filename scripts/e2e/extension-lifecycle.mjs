@@ -304,7 +304,7 @@ try {
     window.e2eInputEvents = []
     for (const type of ["keydown", "keyup", "mouseover", "pointerover"]) {
       document.addEventListener(type, (event) => {
-        window.e2eInputEvents.push({ type, key: event.key, x: event.clientX, y: event.clientY, target: event.target?.id, at: performance.now() })
+        window.e2eInputEvents.push({ type, key: event.key, repeat: event.repeat, x: event.clientX, y: event.clientY, target: event.target?.id, at: performance.now() })
         if (window.e2eInputEvents.length > 40)
           window.e2eInputEvents.shift()
       })

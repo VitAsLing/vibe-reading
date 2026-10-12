@@ -279,7 +279,7 @@ export function registerNodeTranslationTriggerListeners({
         discard(press)
     }
     pressedKeys.add(physicalKey)
-    if (shouldIgnoreEvent() || signal.aborted || alreadyPressed || !KEYBOARD_HOTKEYS.has(event.key))
+    if (shouldIgnoreEvent() || signal.aborted || event.repeat || alreadyPressed || !KEYBOARD_HOTKEYS.has(event.key))
       return
     if (isEditableEvent(event) || hasEditableFocus()) {
       cancelCandidates()

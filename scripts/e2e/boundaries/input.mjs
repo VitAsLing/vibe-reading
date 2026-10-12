@@ -306,6 +306,32 @@ export async function runInputBoundaryCases(h) {
     }
   })
 
+  await check("input-editor-cancelled-key-autorepeat-does-not-restart", async () => {
+    const name = "input-editor-cancelled-key-autorepeat-does-not-restart"
+    await prepare(name, "backtick", `${paragraphs(name)}<input class="notranslate" id="editor" value="keep editing" />`)
+    try {
+      await page.locator("#p1").hover()
+      await page.keyboard.down("Backquote")
+      await frames()
+      await page.locator("#editor").focus()
+      await page.locator("#p2").click()
+      const before = requests.length
+      await page.keyboard.down("Backquote")
+      assert.equal(await page.evaluate(() => window.e2eInputEvents.findLast(event => event.type === "keydown").repeat), true,
+        "the browser must deliver a native repeat while the original physical key remains down")
+      await noTranslation("#p2", before, "editor focus cancelled the physical press; native autorepeat must not restart it after leaving the editor")
+      await page.keyboard.up("Backquote")
+      await page.locator("#p3").hover()
+      await page.keyboard.press("Backquote")
+      await translatedOnce("#p3", text(name, 3), "a genuinely new physical press still translates on its first attempt")
+      assert.equal(await page.locator("#p1 .vibe-reading-translated-content-wrapper").count(), 0)
+    }
+    finally {
+      await page.keyboard.up("Backquote")
+      await cleanup(name)
+    }
+  })
+
   const editors = [
     { kind: "input", markup: "<input id=\"editor\" value=\"unchanged input\" />" },
     { kind: "textarea", markup: "<textarea id=\"editor\">unchanged textarea</textarea>" },
