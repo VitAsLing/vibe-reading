@@ -25,7 +25,11 @@ export function assertContentScriptActive(): void {
 
 export function isContentScriptInvalidationError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
-  if (/\b(?:extension|content script) context invalidated\b/i.test(message)) {
+  // Chrome and assertContentScriptActive throw a plain Error with this exact
+  // message. Remote provider errors preserve their own name over messaging;
+  // their text must not invalidate a healthy document or remove its Retry UI.
+  if (error instanceof Error && error.name === "Error"
+    && /^(?:extension|content script) context invalidated\.?$/i.test(message)) {
     contentScriptContext?.notifyInvalidated()
     return true
   }

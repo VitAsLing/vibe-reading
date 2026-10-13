@@ -9,6 +9,7 @@ import process from "node:process"
 import { fileURLToPath } from "node:url"
 import { chromium } from "playwright"
 import { runContentBoundaryCases } from "./boundaries/content.mjs"
+import { runErrorBoundaryCases } from "./boundaries/errors.mjs"
 import { runInputBoundaryCases } from "./boundaries/input.mjs"
 import { runReloadBoundaryCases } from "./boundaries/reload.mjs"
 import { runSettingsBoundaryCases } from "./boundaries/settings.mjs"
@@ -42,6 +43,7 @@ const diagnosticFailures = []
 const messageRecords = []
 const pendingDiagnostics = new Set()
 let providerStatus = 200
+let providerFailureMessage = "E2E provider temporarily unavailable"
 let holdPending = false
 let context
 let failure
@@ -211,7 +213,7 @@ const server = http.createServer((req, res) => {
       }
       res.writeHead(entry.status, { "content-type": "application/json" })
       if (entry.status !== 200) {
-        res.end(JSON.stringify({ error: { message: "E2E provider temporarily unavailable", type: "authentication_error" } }))
+        res.end(JSON.stringify({ error: { message: providerFailureMessage, type: "authentication_error" } }))
         return
       }
       const code = input.includes("LANG_A_CURRENT_FR") ? "fra" : input.includes("LANG_B_CURRENT") ? "cmn" : "eng"
@@ -1042,14 +1044,19 @@ try {
     const setProviderStatus = (status) => {
       providerStatus = status
     }
-    const harness = { check, page, context, origin, extensionId, cdp, extensionWorker, configure, prepareHost, until, nodeGesture, hasTranslation, originalDom, waitForLanguage, publicMessage, inContentWorld, observePublicMessages, waitForMessageResult, recordMessages, requests, heldMarkers, heldResponses, releaseHeld, providerResponses, translationMode, outputPath, installStorageBoundary, setContentStoragePlan, releaseContentStorage, setProviderStatus, reloadExtension, errors, contentWorld }
+    const setProviderFailureMessage = (message) => {
+      providerFailureMessage = message
+    }
+    const harness = { check, page, context, origin, extensionId, cdp, extensionWorker, configure, prepareHost, until, nodeGesture, hasTranslation, originalDom, waitForLanguage, publicMessage, inContentWorld, observePublicMessages, waitForMessageResult, recordMessages, requests, heldMarkers, heldResponses, releaseHeld, providerResponses, translationMode, outputPath, installStorageBoundary, setContentStoragePlan, releaseContentStorage, setProviderStatus, setProviderFailureMessage, reloadExtension, errors, contentWorld }
     await runContentBoundaryCases(harness)
     await runInputBoundaryCases(harness)
     await runStateBoundaryCases(harness)
     await runUIBoundaryCases(harness)
     await runSettingsBoundaryCases(harness)
-    if (nativeVisibility)
+    if (nativeVisibility) {
       await runReloadBoundaryCases(harness)
+      await runErrorBoundaryCases(harness)
+    }
     for (const name of selectedCases)
       assert.ok(cases.some(item => item.name === name), `No applicable acceptance case: ${name}`)
   }

@@ -98,7 +98,7 @@ jobs:
             directory=".output/acceptance/extension-lifecycle/native-$mode"
             mkdir -p "$directory"
             E2E_NATIVE_VISIBILITY=1 pnpm e2e:extension .output/chrome-mv3 "$directory" \
-              --case=visible-pending-reload-recovery,hidden-pending-reload-recovery,hidden-frozen-page-reload-recovery,live-channel-failure-stays-visible-and-recovers,pending-error-hydration-survives-frozen-reload \
+              --case=visible-pending-reload-recovery,hidden-pending-reload-recovery,hidden-frozen-page-reload-recovery,live-channel-failure-stays-visible-and-recovers,pending-error-hydration-survives-frozen-reload,audit-provider-message-canonical,audit-provider-message-embedded,audit-rapid-reloads-pending-manual,audit-disable-enable-pending-manual,audit-bootstrap-resource-cancel-after-reload,audit-pending-manager-receiver-reload \
               "${args[@]}" 2>&1 | tee "$directory/run.log"
           done
 
