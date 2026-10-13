@@ -57,21 +57,4 @@ export class SessionCacheGroupRegistry {
       logger.error("[CacheRegistry] Failed to clear all caches:", error)
     }
   }
-
-  static async removeCacheGroup(groupKey: string): Promise<void> {
-    try {
-      // First clear the cache data
-      const cache = new SessionCache(groupKey)
-      await cache.clear()
-
-      const registry = await this.getAllCacheGroup()
-      const updatedRegistry = registry.filter(key => key !== groupKey)
-      await storage.setItem(this.REGISTRY_KEY, updatedRegistry)
-
-      logger.info("[CacheRegistry] Removed group completely:", groupKey)
-    }
-    catch (error) {
-      logger.error("[CacheRegistry] Failed to remove group:", error)
-    }
-  }
 }

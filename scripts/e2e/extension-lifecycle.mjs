@@ -15,6 +15,7 @@ import { runConfigConcurrencyCases } from "./boundaries/config-concurrency.mjs"
 import { runContentCleanupCases } from "./boundaries/content-cleanup.mjs"
 import { runContentBoundaryCases } from "./boundaries/content.mjs"
 import { runErrorBoundaryCases } from "./boundaries/errors.mjs"
+import { runIframeSimplificationCases } from "./boundaries/iframe-simplification.mjs"
 import { runInputBoundaryCases } from "./boundaries/input.mjs"
 import { runReloadBoundaryCases } from "./boundaries/reload.mjs"
 import { runSettingsBoundaryCases } from "./boundaries/settings.mjs"
@@ -1060,6 +1061,7 @@ try {
     await runContentBoundaryCases(harness)
     await runInputBoundaryCases(harness)
     await runStateBoundaryCases(harness)
+    await runIframeSimplificationCases(harness)
     await runUIBoundaryCases(harness)
     await runSettingsBoundaryCases(harness)
     if (nativeVisibility) {

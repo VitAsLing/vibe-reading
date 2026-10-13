@@ -6,10 +6,8 @@ import { getPageTranslationEnabled } from "./page-translation-state"
 const HOST_CONTENT_SCRIPT_FILE = "/content-scripts/host.js" as const
 const IFRAME_FULL_RUNTIME_AUTO_INJECT_PATTERNS = ["browse.library.kiwix.org"] as const
 
-type IframeContentScriptFile = typeof HOST_CONTENT_SCRIPT_FILE
-
-const pendingScriptDocumentKeys = new Set<string>()
-const injectedDocumentKeysByFrameAndScript = new Map<string, string>()
+const pendingDocumentKeys = new Set<string>()
+const injectedDocumentKeysByFrame = new Map<string, string>()
 const fullRuntimeAutoInjectUrlByTab = new Map<number, string>()
 
 interface FrameInjectionDetails {
@@ -25,6 +23,7 @@ interface InjectHostContentIntoTabIframesOptions {
 
 interface FrameInfo {
   frameId: number
+  documentId?: string
   url?: string
 }
 
@@ -38,24 +37,16 @@ function getFrameInjectionKey(details: { tabId: number, frameId: number }) {
   return `${details.tabId}:${details.frameId}`
 }
 
-function getScriptDocumentInjectionKey(details: FrameInjectionDetails, file: IframeContentScriptFile) {
-  return `${getDocumentInjectionKey(details)}:${file}`
-}
-
-function getScriptFrameInjectionKey(details: FrameInjectionDetails, file: IframeContentScriptFile) {
-  return `${getFrameInjectionKey(details)}:${file}`
-}
-
 function clearTabDocumentState(tabId: number) {
-  for (const key of pendingScriptDocumentKeys) {
+  for (const key of pendingDocumentKeys) {
     if (key.startsWith(`${tabId}:`)) {
-      pendingScriptDocumentKeys.delete(key)
+      pendingDocumentKeys.delete(key)
     }
   }
 
-  for (const key of injectedDocumentKeysByFrameAndScript.keys()) {
+  for (const key of injectedDocumentKeysByFrame.keys()) {
     if (key.startsWith(`${tabId}:`)) {
-      injectedDocumentKeysByFrameAndScript.delete(key)
+      injectedDocumentKeysByFrame.delete(key)
     }
   }
 
@@ -63,23 +54,18 @@ function clearTabDocumentState(tabId: number) {
 }
 
 function clearFrameInjectedDocumentState(tabId: number, frameId: number) {
-  const frameKeyPrefix = `${getFrameInjectionKey({ tabId, frameId })}:`
-  for (const key of injectedDocumentKeysByFrameAndScript.keys()) {
-    if (key.startsWith(frameKeyPrefix)) {
-      injectedDocumentKeysByFrameAndScript.delete(key)
-    }
-  }
+  injectedDocumentKeysByFrame.delete(getFrameInjectionKey({ tabId, frameId }))
 }
 
 function pruneInjectedFrames(tabId: number, liveFrameIds: Set<number>) {
-  for (const frameKey of injectedDocumentKeysByFrameAndScript.keys()) {
+  for (const frameKey of injectedDocumentKeysByFrame.keys()) {
     if (!frameKey.startsWith(`${tabId}:`)) {
       continue
     }
 
     const frameId = Number(frameKey.split(":")[1])
     if (!liveFrameIds.has(frameId)) {
-      injectedDocumentKeysByFrameAndScript.delete(frameKey)
+      injectedDocumentKeysByFrame.delete(frameKey)
     }
   }
 }
@@ -116,20 +102,13 @@ async function injectHostContentIntoFrame(
   frames?: FrameInfo[],
 ) {
   const documentKey = getDocumentInjectionKey(details)
-  const filesToInject = [HOST_CONTENT_SCRIPT_FILE].filter((file) => {
-    const scriptDocumentKey = getScriptDocumentInjectionKey(details, file)
-    const scriptFrameKey = getScriptFrameInjectionKey(details, file)
-    return !pendingScriptDocumentKeys.has(scriptDocumentKey)
-      && injectedDocumentKeysByFrameAndScript.get(scriptFrameKey) !== documentKey
-  })
-
-  if (filesToInject.length === 0) {
+  const frameKey = getFrameInjectionKey(details)
+  if (pendingDocumentKeys.has(documentKey)
+    || injectedDocumentKeysByFrame.get(frameKey) === documentKey) {
     return
   }
 
-  for (const file of filesToInject) {
-    pendingScriptDocumentKeys.add(getScriptDocumentInjectionKey(details, file))
-  }
+  pendingDocumentKeys.add(documentKey)
 
   try {
     try {
@@ -146,26 +125,18 @@ async function injectHostContentIntoFrame(
     try {
       const target = getInjectionTarget(details) as Parameters<typeof browser.scripting.executeScript>[0]["target"]
 
-      for (const file of filesToInject) {
-        await browser.scripting.executeScript({
-          target,
-          files: [file],
-        })
-
-        injectedDocumentKeysByFrameAndScript.set(
-          getScriptFrameInjectionKey(details, file),
-          documentKey,
-        )
-      }
+      await browser.scripting.executeScript({
+        target,
+        files: [HOST_CONTENT_SCRIPT_FILE],
+      })
+      injectedDocumentKeysByFrame.set(frameKey, documentKey)
     }
     catch (error) {
       logger.warn("[Background][IframeInjection] Failed to inject iframe content scripts", error)
     }
   }
   finally {
-    for (const file of filesToInject) {
-      pendingScriptDocumentKeys.delete(getScriptDocumentInjectionKey(details, file))
-    }
+    pendingDocumentKeys.delete(documentKey)
   }
 }
 
@@ -202,6 +173,7 @@ export async function injectHostContentIntoTabIframes(
     .map(frame => injectHostContentIntoFrame({
       tabId,
       frameId: frame.frameId,
+      documentId: frame.documentId,
       url: frame.url,
     }, frames)))
 }

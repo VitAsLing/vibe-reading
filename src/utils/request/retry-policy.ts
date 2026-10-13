@@ -91,15 +91,6 @@ export function getRequestErrorMeta(error: unknown): RequestErrorMeta {
   })
 }
 
-export function getRetryAfterMs(meta: RequestErrorMeta, now = Date.now()): number | undefined {
-  const directRetryAfterMs = normalizeNonNegativeNumber(meta.retryAfterMs)
-  if (directRetryAfterMs !== undefined) {
-    return directRetryAfterMs
-  }
-
-  return getRetryAfterMsFromHeaders(meta.responseHeaders, now)
-}
-
 export function getHeaderValue(headers: RequestErrorMeta["responseHeaders"] | unknown, key: string): string | undefined {
   if (!headers) {
     return undefined
@@ -126,11 +117,6 @@ export function getHeaderValue(headers: RequestErrorMeta["responseHeaders"] | un
   }
 
   return undefined
-}
-
-export function isRateLimitRequestError(error: unknown): boolean {
-  const meta = getRequestErrorMeta(error)
-  return meta.kind === "rate-limit" || meta.statusCode === 429
 }
 
 export const defaultRequestRetryPolicy: RequestRetryPolicy = {

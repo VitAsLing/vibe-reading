@@ -127,12 +127,6 @@ describe("translate", () => {
     })
   }
 
-  describe("translateTextForPage stub", () => {
-    it("translateTextForPage should be mocked", async () => {
-      expect(await translateTextForPage("任何文字")).toBe(MOCK_TRANSLATION)
-    })
-  })
-
   describe("block node with single child node", () => {
     describe("text node", () => {
       it("bilingual mode: should insert translation wrapper after original text node", async () => {

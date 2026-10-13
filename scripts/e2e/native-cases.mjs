@@ -2,6 +2,7 @@
 // the original full regression suite keeps its declared focus adapter.
 export function nativeAcceptanceCases(translationMode) {
   const cases = [
+    "iframe-held-injection-reply-same-url-reload-page-start",
     "visible-pending-reload-recovery",
     "hidden-pending-reload-recovery",
     "hidden-frozen-page-reload-recovery",

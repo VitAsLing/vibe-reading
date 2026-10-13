@@ -37,32 +37,25 @@ export function delayNativeConfigCommit() {
 export async function holdConfigSubmission(ui, label) {
   await ui.evaluate((value) => {
     globalThis.__E2E_CONFIG_COMMITS__.label = value
-    // Old builds read locally; current builds commit through public messaging.
-    globalThis.__E2E_NATIVE_STORAGE__.plans.push({ area: "local", method: "get", key: "config", action: "hold", label: value })
   }, label)
 }
 
 export async function submissionHeld(h, ui, label) {
   await h.until(() => ui.evaluate(value =>
-    globalThis.__E2E_NATIVE_STORAGE__.held.some(entry => entry.label === value)
-    || globalThis.__E2E_CONFIG_COMMITS__.held.some(entry => entry.label === value), label),
-  "the actual save waits at a native read reply or before forwarding its native configuration commit")
-  return ui.evaluate((value) => {
-    const messageHeld = globalThis.__E2E_CONFIG_COMMITS__.held.some(entry => entry.label === value)
-    if (messageHeld) {
-      globalThis.__E2E_NATIVE_STORAGE__.plans = globalThis.__E2E_NATIVE_STORAGE__.plans.filter(plan => plan.label !== value)
-      const call = globalThis.__E2E_CONFIG_COMMITS__.calls.find(entry => entry.label === value)
-      return { boundary: "native-message-before-forward", ...call }
-    }
-    const call = globalThis.__E2E_NATIVE_STORAGE__.calls.find(entry => entry.label === value)
-    return { boundary: "native-read-after-forward", ...call }
+    globalThis.__E2E_CONFIG_COMMITS__.held.some(entry => entry.label === value), label),
+  "the actual save waits before forwarding its native configuration commit")
+  const held = await ui.evaluate((value) => {
+    const call = globalThis.__E2E_CONFIG_COMMITS__.calls.find(entry => entry.label === value)
+    return { boundary: "native-message-before-forward", ...call }
   }, label)
+  assert.equal(held.type, "saveConfiguration", "the user's save must reach the current public configuration protocol")
+  assert.equal(held.forwarded, false, "the stale submission must wait outside the background commit queue")
+  assert.equal(held.settled, false, "the native configuration commit remains pending until explicitly released")
+  return held
 }
 
 export async function releaseConfigSubmission(ui, label) {
   await ui.evaluate((value) => {
-    if (globalThis.__E2E_NATIVE_STORAGE__.held.some(entry => entry.label === value))
-      globalThis.__E2E_NATIVE_STORAGE__.release(value)
     globalThis.__E2E_CONFIG_COMMITS__.release(value)
   }, label)
 }
@@ -211,8 +204,7 @@ export async function runConfigConcurrencyCases(h) {
       await options.getByRole("option", { name: nextModeLabel, exact: true }).click()
       const held = await submissionHeld(h, options, label)
       assert.equal(held.settled, false, "the user's options save must remain pending")
-      assert.equal(held.forwarded, held.boundary === "native-read-after-forward",
-        "native reads forward before holding their reply; native message commits hold before their actual dispatch")
+      assert.equal(held.forwarded, false, "the native message commit must be held before its actual dispatch")
 
       await selectSource("French")
       await h.until(async () => (await readConfig()).language.sourceCode === "fra", "the independent popup save persists French while the options read remains held")
@@ -290,17 +282,9 @@ export async function runConfigConcurrencyCases(h) {
         "the other real provider editor confirms its name save before the old commit is released")
       await releaseConfigSubmission(first, label)
       await h.until(() => first.evaluate(value =>
-        globalThis.__E2E_CONFIG_COMMITS__.calls.some(call => call.label === value && call.settled)
-        || globalThis.__E2E_NATIVE_STORAGE__.calls.some(call => call.label === value && call.settled), label), "the old native save finishes")
-      if (held.boundary === "native-message-before-forward") {
-        await h.until(async () => await first.locator("[data-sonner-toast][data-type=error]").count() > 0,
-          "the stale public configuration commit reports a visible conflict")
-      }
-      else {
-        await h.until(() => first.evaluate(() =>
-          globalThis.__E2E_NATIVE_STORAGE__.calls.some(call => call.method === "set" && call.keys.includes("config") && call.settled)
-          && globalThis.__E2E_NATIVE_STORAGE__.calls.every(call => call.settled)), "the legacy native provider write completes")
-      }
+        globalThis.__E2E_CONFIG_COMMITS__.calls.some(call => call.label === value && call.forwarded && call.settled), label), "the old native save is forwarded and finishes")
+      await h.until(async () => await first.locator("[data-sonner-toast][data-type=error]").count() > 0,
+        "the stale public configuration commit reports a visible conflict")
       const afterStale = (await readConfig()).providersConfig.find(item => item.id === provider.id)
       const conflictVisible = await first.locator("[data-sonner-toast][data-type=error]").count() > 0
       await writeFile(path.join(h.outputPath, "provider-concurrency-stale.json"), JSON.stringify({ held, afterStale, conflictVisible, calls: await first.evaluate(() => globalThis.__E2E_CONFIG_COMMITS__.calls) }, null, 2))

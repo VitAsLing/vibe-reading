@@ -4,7 +4,7 @@ import type { APIProviderConfig } from "@/types/config/provider"
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import { useEffect, useState } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { updateProviderConfig } from "@/utils/atoms/provider"
+import { updateLLMProviderConfig } from "@/utils/atoms/provider"
 import { formOpts, useAppForm } from "../form"
 import { ProviderOptionsField } from "../provider-options-field"
 
@@ -95,7 +95,7 @@ function ProviderOptionsFieldHarness({
             return
           }
 
-          setProviderConfig(updateProviderConfig(providerConfig, {
+          setProviderConfig(updateLLMProviderConfig(providerConfig, {
             providerOptions: externalProviderOptions,
           }) as APIProviderConfig)
         }}

@@ -1,7 +1,10 @@
 import type { ZodSchema } from "zod"
 import { storage } from "#imports"
 import { isContentScriptActive, isContentScriptInvalidationError } from "@/utils/content-script/lifecycle"
-import { isNonNullish } from "@/utils/utils"
+
+function isNonNullish<T>(value: T): value is NonNullable<T> {
+  return value !== null && value !== undefined
+}
 
 export const storageAdapter = {
   async get<T>(key: string, fallback: T, schema: ZodSchema<T>): Promise<T> {
@@ -22,9 +25,6 @@ export const storageAdapter = {
     else {
       throw new Error(parsedValue.error.message)
     }
-  },
-  async setMeta(key: string, meta: Record<string, unknown>) {
-    await storage.setMeta(`local:${key}`, meta)
   },
   watch<T>(key: string, callback: (newValue: T) => void) {
     if (!isContentScriptActive())
