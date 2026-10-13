@@ -10,15 +10,6 @@ import {
 } from "@/utils/constants/dom-labels"
 import { CUSTOM_DONT_WALK_INTO_ELEMENT_SELECTOR_MAP, CUSTOM_FORCE_BLOCK_TRANSLATION_SELECTOR_MAP, DONT_WALK_AND_TRANSLATE_TAGS, DONT_WALK_BUT_TRANSLATE_TAGS, FORCE_BLOCK_TAGS, MAIN_CONTENT_IGNORE_TAGS } from "@/utils/constants/dom-rules"
 
-export function isEditable(element: HTMLElement): boolean {
-  const tag = element.tagName
-  if (tag === "INPUT" || tag === "TEXTAREA")
-    return true
-  if (element.isContentEditable)
-    return true
-  return false
-}
-
 // shallow means only check the node itself, not the children
 // if a shallow inline node has children are block node, then it's block node rather than inline node
 export function isShallowInlineTransNode(node: Node): boolean {
@@ -82,16 +73,6 @@ export function isShallowInlineHTMLElement(element: HTMLElement): boolean {
 }
 
 // Note: !(inline node) != block node because of `notranslate` class and all cases not in the if else block
-export function isShallowBlockTransNode(node: Node): boolean {
-  if (isTextNode(node)) {
-    return false
-  }
-  else if (isHTMLElement(node)) {
-    return isShallowBlockHTMLElement(node)
-  }
-  return false
-}
-
 export function isShallowBlockHTMLElement(element: HTMLElement): boolean {
   const computedStyle = window.getComputedStyle(element)
 
@@ -201,10 +182,6 @@ export function isHTMLElement(node: Node): node is HTMLElement {
     && "setAttribute" in node
 }
 
-export function isElement(node: Node): node is Element {
-  return node.nodeType === Node.ELEMENT_NODE
-}
-
 /**
  * More reliable check for Text nodes that works across different contexts
  * avoid using instanceof Text
@@ -219,11 +196,6 @@ export function isTextNode(node: Node): node is Text {
 
 export function isTransNode(node: Node): node is TransNode {
   return isHTMLElement(node) || isTextNode(node)
-}
-
-export function isIFrameElement(node: Node): node is HTMLIFrameElement {
-  return node.nodeType === Node.ELEMENT_NODE
-    && node.nodeName === "IFRAME"
 }
 
 export function isTranslatedWrapperNode(node: Node) {

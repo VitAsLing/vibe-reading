@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { writeFile } from "node:fs/promises"
 import path from "node:path"
 import { delayNativeConfigCommit, holdConfigSubmission, releaseConfigSubmission, submissionHeld } from "./config-concurrency.mjs"
+import { installConfigurationSaveReadFault, removeConfigurationSaveReadFault, waitForConfigurationSaveReadFault } from "./settings.mjs"
 
 function holdActualThemeFailures() {
   const set = globalThis.chrome.storage.local.set.bind(globalThis.chrome.storage.local)
@@ -78,8 +79,7 @@ function observeNativeModelReplies() {
 
 function delayLocaleSaves() {
   const send = globalThis.chrome.runtime.sendMessage.bind(globalThis.chrome.runtime)
-  const get = globalThis.chrome.storage.local.get.bind(globalThis.chrome.storage.local)
-  const state = globalThis.__E2E_LOCALE_SAVES__ = { labels: [], held: [], calls: [], messages: false }
+  const state = globalThis.__E2E_LOCALE_SAVES__ = { labels: [], held: [], calls: [] }
   state.release = (label) => {
     const held = state.held.find(item => item.label === label)
     if (!held)
@@ -87,22 +87,10 @@ function delayLocaleSaves() {
     state.held.splice(state.held.indexOf(held), 1)
     held.forward()
   }
-  globalThis.chrome.storage.local.get = (...args) => {
-    if (state.messages || args[0] !== "config" || !state.labels.length)
-      return get(...args)
-    const label = state.labels.shift()
-    const call = { label, boundary: "native-read", forwarded: true, settled: false }
-    state.calls.push(call)
-    return get(...args).then(result => new Promise(resolve => state.held.push({ label, forward: () => {
-      call.settled = true
-      resolve(result)
-    } })))
-  }
   globalThis.chrome.runtime.sendMessage = (...args) => {
     const message = args.find(value => value && typeof value === "object" && value.type)
     if (message?.type !== "saveConfiguration" || !message.data.patch.uiLocale || !state.labels.length)
       return send(...args)
-    state.messages = true
     const label = state.labels.shift()
     const call = { label, boundary: "native-message", forwarded: false, settled: false }
     state.calls.push(call)
@@ -149,6 +137,10 @@ export async function runUIAcknowledgementCases(h) {
       errors: h.errors,
       toasts: await ui.locator("[data-sonner-toast]").allTextContents(),
       native: await ui.evaluate(() => ({ storage: globalThis.__E2E_NATIVE_STORAGE__.calls, commits: globalThis.__E2E_CONFIG_COMMITS__.calls })),
+      backgroundSaveFaults: await worker.evaluate(() => {
+        const state = globalThis.__E2E_NATIVE_STORAGE__
+        return state && { messages: state.configurationSaveFaults, calls: state.calls.filter(call => call.label), plans: state.plans }
+      }),
       ...extra,
     }, null, 2))
     await ui.screenshot({ path: path.join(h.outputPath, `${name}-${phase}.png`) })
@@ -172,28 +164,15 @@ export async function runUIAcknowledgementCases(h) {
   }, scratch)
   const rejectSave = async (ui, label) => {
     saveFailureLabels.add(label)
-    await worker.evaluate(h.installStorageBoundary)
-    for (const surface of [ui, worker]) {
-      await surface.evaluate(value => globalThis.__E2E_NATIVE_STORAGE__.plans.push({ area: "local", method: "get", key: "config", action: "reject", label: value }), label)
-    }
+    await installConfigurationSaveReadFault(worker, h.installStorageBoundary, ui.url(), label)
   }
-  const clearSaveFailures = async (ui) => {
-    for (const surface of [worker, ...(ui && !ui.isClosed() ? [ui] : [])]) {
-      await surface.evaluate((labels) => {
-        const state = globalThis.__E2E_NATIVE_STORAGE__
-        if (state)
-          state.plans = state.plans.filter(plan => !labels.includes(plan.label))
-      }, [...saveFailureLabels])
-    }
+  const clearSaveFailures = async () => {
+    for (const label of saveFailureLabels)
+      await removeConfigurationSaveReadFault(worker, label)
+    saveFailureLabels.clear()
   }
   const awaitSaveFailure = async (ui, label) => {
-    await h.until(async () => (await Promise.all([ui, worker].map(surface => surface.evaluate(value =>
-      globalThis.__E2E_NATIVE_STORAGE__.calls.some(call => call.label === value && call.settled), label)))).some(Boolean), "the actual native save read fails")
-    for (const surface of [ui, worker]) {
-      await surface.evaluate((value) => {
-        globalThis.__E2E_NATIVE_STORAGE__.plans = globalThis.__E2E_NATIVE_STORAGE__.plans.filter(plan => plan.label !== value)
-      }, label)
-    }
+    await waitForConfigurationSaveReadFault(worker, h.until, label)
     await h.until(async () => await ui.locator("[data-sonner-toast][data-type=error]").count() > 0, "the actual save failure is visible")
   }
 
@@ -373,7 +352,7 @@ export async function runUIAcknowledgementCases(h) {
       await record(ui, name, "same-value-recovered", { saved: (await config()).providersConfig.find(provider => provider.id === "e2e-local").headers })
     }
     finally {
-      await clearSaveFailures(ui)
+      await clearSaveFailures()
       if (ui && !ui.isClosed())
         await ui.close()
       await h.configure(previous)
@@ -413,7 +392,7 @@ export async function runUIAcknowledgementCases(h) {
       await record(ui, name, "retained-draft-recovered", { storedCSS: changed })
     }
     finally {
-      await clearSaveFailures(ui)
+      await clearSaveFailures()
       if (ui && !ui.isClosed()) {
         await releaseConfigSubmission(ui, "css-pending")
         await ui.close()
@@ -447,7 +426,7 @@ export async function runUIAcknowledgementCases(h) {
       await record(ui, name, "saved-retry", { saved: (await config()).translate.customPromptsConfig })
     }
     finally {
-      await clearSaveFailures(ui)
+      await clearSaveFailures()
       if (ui && !ui.isClosed())
         await ui.close()
       await h.configure(previous)
@@ -464,32 +443,12 @@ export async function runUIAcknowledgementCases(h) {
       await h.configure({ uiLocale: "en", providersConfig: [...previous.providersConfig, backup] })
       const before = await config()
       ui = await open("/api-providers", "#name")
-      await worker.evaluate(h.installStorageBoundary)
-      await ui.evaluate(() => globalThis.__E2E_NATIVE_STORAGE__.plans.push(
-        { area: "local", method: "get", key: "config", action: "hold", label: "legacy-delete-first" },
-        { area: "local", method: "get", key: "config", action: "reject", label: "legacy-delete-second" },
-      ))
-      await worker.evaluate(() => globalThis.__E2E_NATIVE_STORAGE__.plans.push({ area: "local", method: "get", key: "config", action: "reject", label: "atomic-delete" }))
+      await rejectSave(ui, "atomic-delete")
       await ui.getByRole("button", { name: "Delete", exact: true }).click()
       await ui.getByRole("alertdialog").getByRole("button", { name: "Delete", exact: true }).click()
-      await h.until(async () => await ui.evaluate(() => globalThis.__E2E_NATIVE_STORAGE__.held.some(item => item.label === "legacy-delete-first"))
-        || await worker.evaluate(() => globalThis.__E2E_NATIVE_STORAGE__.calls.some(call => call.label === "atomic-delete" && call.settled)),
-      "the actual provider deletion reaches the controlled native commit boundary")
-      const legacy = await ui.evaluate(() => globalThis.__E2E_NATIVE_STORAGE__.held.some(item => item.label === "legacy-delete-first"))
-      if (legacy) {
-        await worker.evaluate(() => {
-          globalThis.__E2E_NATIVE_STORAGE__.plans = globalThis.__E2E_NATIVE_STORAGE__.plans.filter(plan => plan.label !== "atomic-delete")
-        })
-        await ui.evaluate(() => globalThis.__E2E_NATIVE_STORAGE__.release("legacy-delete-first"))
-      }
-      else {
-        await ui.evaluate(() => {
-          globalThis.__E2E_NATIVE_STORAGE__.plans = globalThis.__E2E_NATIVE_STORAGE__.plans.filter(plan => !plan.label.startsWith("legacy-delete-"))
-        })
-      }
-      await h.until(async () => await ui.locator("[data-sonner-toast][data-type=error]").count() > 0, "the real failed deletion is visible")
+      await awaitSaveFailure(ui, "atomic-delete")
       const failed = await config()
-      await record(ui, name, "failed-delete", { legacy, originalProviderId: before.translate.providerId, failedProviderId: failed.translate.providerId, remainingIds: failed.providersConfig.map(provider => provider.id) })
+      await record(ui, name, "failed-delete", { originalProviderId: before.translate.providerId, failedProviderId: failed.translate.providerId, remainingIds: failed.providersConfig.map(provider => provider.id) })
       assert.deepEqual(failed.providersConfig, before.providersConfig, "a failed deletion must retain the real provider list")
       assert.equal(failed.translate.providerId, before.translate.providerId, "a failed deletion must not partially commit fallback bindings")
       if (!await ui.getByRole("alertdialog").count())
@@ -500,17 +459,9 @@ export async function runUIAcknowledgementCases(h) {
       await record(ui, name, "confirmed-delete", { remainingIds: (await config()).providersConfig.map(provider => provider.id) })
     }
     finally {
-      await worker.evaluate(() => {
-        globalThis.__E2E_NATIVE_STORAGE__.plans = globalThis.__E2E_NATIVE_STORAGE__.plans.filter(plan => plan.label !== "atomic-delete")
-      })
-      if (ui && !ui.isClosed()) {
-        await ui.evaluate(() => {
-          if (globalThis.__E2E_NATIVE_STORAGE__.held.some(item => item.label === "legacy-delete-first"))
-            globalThis.__E2E_NATIVE_STORAGE__.release("legacy-delete-first")
-          globalThis.__E2E_NATIVE_STORAGE__.plans = globalThis.__E2E_NATIVE_STORAGE__.plans.filter(plan => !plan.label.startsWith("legacy-delete-"))
-        })
+      await clearSaveFailures()
+      if (ui && !ui.isClosed())
         await ui.close()
-      }
       await h.configure(previous)
     }
   })

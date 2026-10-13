@@ -61,21 +61,6 @@ export function getRecommendedProviderOptions(model: string): Record<string, JSO
 }
 
 /**
- * Wrap a recommendation for the AI SDK request shape.
- */
-export function getProviderOptions(
-  model: string,
-  provider: string,
-): Record<string, Record<string, JSONValue>> {
-  const options = getRecommendedProviderOptions(model)
-  if (!options) {
-    return {}
-  }
-
-  return { [provider]: options }
-}
-
-/**
  * Get provider options for AI SDK calls.
  * - If the user has saved provider options (including `{}`), use them as-is.
  * - Otherwise fall back to the recommended defaults for the current model.

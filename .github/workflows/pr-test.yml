@@ -47,4 +47,4 @@ jobs:
         run: pnpm build
 
       - name: Run tests
-        run: pnpm test --exclude="**/free-api.test.ts"
+        run: pnpm test

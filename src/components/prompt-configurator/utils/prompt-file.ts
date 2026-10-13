@@ -14,10 +14,6 @@ const importedPromptsSchema = z.array(translatePromptObjSchema.omit({ id: true }
   systemPrompt: z.string().default(""),
 }))
 
-export function checkPromptConfig(list: unknown): list is PromptConfig[] {
-  return importedPromptsSchema.safeParse(list).success
-}
-
 export function downloadJSONFile(data: object) {
   const json = JSON.stringify(data, null, 2)
   const blob = new Blob([json], { type: "text/json" })

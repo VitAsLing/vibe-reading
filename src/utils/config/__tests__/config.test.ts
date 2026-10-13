@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { DEFAULT_PROVIDER_CONFIG, DEFAULT_PROVIDER_CONFIG_LIST } from "@/utils/constants/providers"
-import { getObjectWithoutAPIKeys, hasAPIKey } from "../api"
+import { getObjectWithoutAPIKeys } from "../api"
 
 describe("config utilities", () => {
   describe("getObjectWithoutAPIKeys", () => {
@@ -17,7 +17,7 @@ describe("config utilities", () => {
       expect(result.name).toBe(openaiConfigFromConstants.name)
       expect(result.provider).toBe("openai")
       expect(result.model).toEqual(openaiConfigFromConstants.model)
-      expect(hasAPIKey(result)).toBe(false)
+      expect(JSON.stringify(result)).not.toMatch(/"apiKey"\s*:/)
     })
 
     it("should remove apiKey from DeepSeek provider config", () => {
@@ -34,7 +34,7 @@ describe("config utilities", () => {
       expect(result.name).toBe(deepseekConfigFromConstants.name)
       expect(result.provider).toBe("deepseek")
       expect(result.model).toEqual(deepseekConfigFromConstants.model)
-      expect(hasAPIKey(result)).toBe(false)
+      expect(JSON.stringify(result)).not.toMatch(/"apiKey"\s*:/)
     })
 
     it("should handle nested objects with multiple apiKeys", () => {
@@ -72,7 +72,7 @@ describe("config utilities", () => {
       expect(result.user.profile.email).toBe("john@example.com")
       expect(result.services.openai.model).toBe("gpt-4")
       expect(result.services.deepseek.url).toBe("https://api.deepseek.com")
-      expect(hasAPIKey(result)).toBe(false)
+      expect(JSON.stringify(result)).not.toMatch(/"apiKey"\s*:/)
     })
 
     it("should handle arrays containing objects with apiKeys", () => {
@@ -106,7 +106,7 @@ describe("config utilities", () => {
       expect(result.providers[1].name).toBe("Provider 2")
       expect(result.providers[1].enabled).toBe(false)
       expect(result.settings.theme).toBe("dark")
-      expect(hasAPIKey(result)).toBe(false)
+      expect(JSON.stringify(result)).not.toMatch(/"apiKey"\s*:/)
     })
 
     it("should handle objects without apiKeys", () => {
@@ -125,20 +125,20 @@ describe("config utilities", () => {
       const result = getObjectWithoutAPIKeys(cleanObject)
 
       expect(result).toEqual(cleanObject)
-      expect(hasAPIKey(result)).toBe(false)
+      expect(JSON.stringify(result)).not.toMatch(/"apiKey"\s*:/)
     })
 
     it("should handle edge cases and complex structures", () => {
       // Test empty object
       const emptyObject = {}
       expect(getObjectWithoutAPIKeys(emptyObject)).toEqual({})
-      expect(hasAPIKey(getObjectWithoutAPIKeys(emptyObject))).toBe(false)
+      expect(JSON.stringify(getObjectWithoutAPIKeys(emptyObject))).not.toMatch(/"apiKey"\s*:/)
 
       // Test object with only apiKey
       const onlyApiKeyObject = { apiKey: "secret" }
       const result = getObjectWithoutAPIKeys(onlyApiKeyObject)
       expect(result).toEqual({})
-      expect(hasAPIKey(result)).toBe(false)
+      expect(JSON.stringify(result)).not.toMatch(/"apiKey"\s*:/)
 
       // Test deeply nested structure
       const complexObject = {
@@ -167,7 +167,7 @@ describe("config utilities", () => {
       expect(cleanResult.level1.level2.level3.data).toBe("keep-this")
       expect(cleanResult.level1.level2.level3.level4.moreData).toBe("also-keep-this")
       expect(cleanResult.otherBranch.info).toBe("preserve-this")
-      expect(hasAPIKey(cleanResult)).toBe(false)
+      expect(JSON.stringify(cleanResult)).not.toMatch(/"apiKey"\s*:/)
     })
   })
 })

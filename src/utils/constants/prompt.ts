@@ -1,5 +1,4 @@
 export const WEB_PAGE_PROMPT_TOKENS = ["targetLanguage", "input", "webTitle", "webDescription", "webContent", "webSummary"] as const
-export const TOKENS = WEB_PAGE_PROMPT_TOKENS
 
 /**
  * Separator used to distinguish multiple text segments in batch translation.
@@ -30,7 +29,6 @@ Webpage title: ${getTokenCellText(WEB_TITLE)}
 Webpage summary: ${getTokenCellText(WEB_SUMMARY)}`
 
 export const DEFAULT_TRANSLATE_PROMPT = `Translate to ${getTokenCellText(TARGET_LANGUAGE)}:
-
 
 ${getTokenCellText(INPUT)}`
 

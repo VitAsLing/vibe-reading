@@ -1,21 +1,20 @@
 import { describe, expect, it } from "vitest"
 import {
-  getProviderOptions,
   getProviderOptionsWithOverride,
   getRecommendedProviderOptionsMatch,
 } from "../../providers/options"
 import { LLM_PROVIDER_MODELS } from "../models"
 
-describe("getProviderOptions", () => {
+describe("provider option defaults", () => {
   it("exposes only the supported provider model catalogs", () => {
     expect(Object.keys(LLM_PROVIDER_MODELS)).toEqual(["openai", "deepseek", "openai-compatible"])
   })
 
   it("returns options for OpenAI reasoning models", () => {
-    expect(getProviderOptions("o1-preview", "openai").openai?.reasoningEffort).toBe("minimal")
-    expect(getProviderOptions("o3-mini", "openai").openai?.reasoningEffort).toBe("minimal")
-    expect(getProviderOptions("o4-mini", "openai").openai?.reasoningEffort).toBe("minimal")
-    expect(getProviderOptions("O4-Mini", "openai").openai?.reasoningEffort).toBe("minimal")
+    expect(getProviderOptionsWithOverride("o1-preview", "openai")?.openai?.reasoningEffort).toBe("minimal")
+    expect(getProviderOptionsWithOverride("o3-mini", "openai")?.openai?.reasoningEffort).toBe("minimal")
+    expect(getProviderOptionsWithOverride("o4-mini", "openai")?.openai?.reasoningEffort).toBe("minimal")
+    expect(getProviderOptionsWithOverride("O4-Mini", "openai")?.openai?.reasoningEffort).toBe("minimal")
   })
 
   it("exposes the supported OpenAI GPT-5.4 model ids", () => {
@@ -36,31 +35,31 @@ describe("getProviderOptions", () => {
   })
 
   it("returns documented GPT-5 reasoning defaults", () => {
-    expect(getProviderOptions("gpt-5.4-pro", "openai").openai?.reasoningEffort).toBe("medium")
-    expect(getProviderOptions("GPT-5.4-Pro", "openai").openai?.reasoningEffort).toBe("medium")
-    expect(getProviderOptions("gpt-5.2-pro", "openai").openai?.reasoningEffort).toBe("medium")
-    expect(getProviderOptions("gpt-5-pro", "openai").openai?.reasoningEffort).toBe("high")
-    expect(getProviderOptions("gpt-5.4", "openai").openai?.reasoningEffort).toBe("none")
-    expect(getProviderOptions("gpt-5.2", "openai").openai?.reasoningEffort).toBe("none")
-    expect(getProviderOptions("gpt-5", "openai").openai?.reasoningEffort).toBe("minimal")
-    expect(getProviderOptions("gpt-5-mini", "openai").openai?.reasoningEffort).toBe("minimal")
+    expect(getProviderOptionsWithOverride("gpt-5.4-pro", "openai")?.openai?.reasoningEffort).toBe("medium")
+    expect(getProviderOptionsWithOverride("GPT-5.4-Pro", "openai")?.openai?.reasoningEffort).toBe("medium")
+    expect(getProviderOptionsWithOverride("gpt-5.2-pro", "openai")?.openai?.reasoningEffort).toBe("medium")
+    expect(getProviderOptionsWithOverride("gpt-5-pro", "openai")?.openai?.reasoningEffort).toBe("high")
+    expect(getProviderOptionsWithOverride("gpt-5.4", "openai")?.openai?.reasoningEffort).toBe("none")
+    expect(getProviderOptionsWithOverride("gpt-5.2", "openai")?.openai?.reasoningEffort).toBe("none")
+    expect(getProviderOptionsWithOverride("gpt-5", "openai")?.openai?.reasoningEffort).toBe("minimal")
+    expect(getProviderOptionsWithOverride("gpt-5-mini", "openai")?.openai?.reasoningEffort).toBe("minimal")
   })
 
   it("omits recommendations for GPT-5 chat-latest models", () => {
-    expect(getProviderOptions("gpt-5-chat-latest", "openai")).toEqual({})
-    expect(getProviderOptions("gpt-5.1-chat-latest", "openai")).toEqual({})
-    expect(getProviderOptions("gpt-5.2-chat-latest", "openai")).toEqual({})
-    expect(getProviderOptions("gpt-5.3-chat-latest", "openai")).toEqual({})
+    expect(getProviderOptionsWithOverride("gpt-5-chat-latest", "openai")).toBeUndefined()
+    expect(getProviderOptionsWithOverride("gpt-5.1-chat-latest", "openai")).toBeUndefined()
+    expect(getProviderOptionsWithOverride("gpt-5.2-chat-latest", "openai")).toBeUndefined()
+    expect(getProviderOptionsWithOverride("gpt-5.3-chat-latest", "openai")).toBeUndefined()
   })
 
   it("returns DeepSeek thinking defaults", () => {
-    expect(getProviderOptions("deepseek-v4-flash", "deepseek").deepseek?.thinking).toEqual({ type: "disabled" })
-    expect(getProviderOptions("DeepSeek-V4-Flash", "deepseek").deepseek?.thinking).toEqual({ type: "disabled" })
-    expect(getProviderOptions("deepseek-v4-pro", "deepseek").deepseek?.thinking).toEqual({ type: "disabled" })
+    expect(getProviderOptionsWithOverride("deepseek-v4-flash", "deepseek")?.deepseek?.thinking).toEqual({ type: "disabled" })
+    expect(getProviderOptionsWithOverride("DeepSeek-V4-Flash", "deepseek")?.deepseek?.thinking).toEqual({ type: "disabled" })
+    expect(getProviderOptionsWithOverride("deepseek-v4-pro", "deepseek")?.deepseek?.thinking).toEqual({ type: "disabled" })
   })
 
-  it("returns empty object for non-matching models", () => {
-    expect(getProviderOptions("some-random-model", "openai")).toEqual({})
+  it("omits options for non-matching models", () => {
+    expect(getProviderOptionsWithOverride("some-random-model", "openai")).toBeUndefined()
   })
 
   it("treats an explicit empty provider options object as a user override", () => {

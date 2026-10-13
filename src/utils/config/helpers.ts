@@ -1,7 +1,7 @@
 import type { Config } from "@/types/config/config"
-import type { APIProviderConfig, LLMProviderConfig, ProviderConfig, ProvidersConfig, TranslateProviderConfig } from "@/types/config/provider"
+import type { APIProviderConfig, LLMProviderConfig, ProviderConfig, ProvidersConfig } from "@/types/config/provider"
 import type { FeatureKey } from "@/utils/constants/feature-providers"
-import { isAPIProviderConfig, isLLMProviderConfig, isTranslateProviderConfig } from "@/types/config/provider"
+import { isAPIProviderConfig, isLLMProviderConfig } from "@/types/config/provider"
 import { FEATURE_KEYS, FEATURE_PROVIDER_DEFS } from "@/utils/constants/feature-providers"
 
 export function getProviderConfigById<T extends ProviderConfig>(providersConfig: T[], providerId: string): T | undefined {
@@ -16,45 +16,8 @@ export function getAPIProvidersConfig(providersConfig: ProvidersConfig): APIProv
   return providersConfig.filter(isAPIProviderConfig)
 }
 
-export function getTranslateProvidersConfig(providersConfig: ProvidersConfig): TranslateProviderConfig[] {
-  return providersConfig.filter(isTranslateProviderConfig)
-}
-
 export function filterEnabledProvidersConfig(providersConfig: ProvidersConfig): ProvidersConfig {
   return providersConfig.filter(p => p.enabled)
-}
-
-export function getEnabledLLMProvidersConfig(providersConfig: ProvidersConfig): LLMProviderConfig[] {
-  return filterEnabledProvidersConfig(providersConfig).filter(isLLMProviderConfig)
-}
-
-export function getProviderKeyByName(providersConfig: ProvidersConfig, providerId: string): string | undefined {
-  const provider = getProviderConfigById(providersConfig, providerId)
-  return provider?.provider
-}
-
-export function getProviderModelConfig(config: Config, providerId: string) {
-  const providerConfig = getProviderConfigById(config.providersConfig, providerId)
-  if (providerConfig && isLLMProviderConfig(providerConfig)) {
-    return providerConfig.model
-  }
-  return undefined
-}
-
-export function getProviderApiKey(providersConfig: ProvidersConfig, providerId: string): string | undefined {
-  const providerConfig = getProviderConfigById(providersConfig, providerId)
-  if (providerConfig && isAPIProviderConfig(providerConfig)) {
-    return providerConfig.apiKey
-  }
-  return undefined
-}
-
-export function getProviderBaseURL(providersConfig: ProvidersConfig, providerId: string): string | undefined {
-  const providerConfig = getProviderConfigById(providersConfig, providerId)
-  if (providerConfig && isAPIProviderConfig(providerConfig) && "baseURL" in providerConfig) {
-    return providerConfig.baseURL
-  }
-  return undefined
 }
 
 /**

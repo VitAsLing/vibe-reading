@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { Buffer } from "node:buffer"
 import { writeFile } from "node:fs/promises"
 import path from "node:path"
+import { installConfigurationSaveReadFault, removeConfigurationSaveReadFault, waitForConfigurationSaveReadFault } from "./settings.mjs"
 
 export async function runConfigActionCases(h) {
   const worker = await h.extensionWorker()
@@ -43,34 +44,18 @@ export async function runConfigActionCases(h) {
 
   await h.check("settings-prompt-import-failed-save-has-no-success-and-recovers", async () => {
     const name = "settings-prompt-import-failed-save-has-no-success-and-recovers"
+    const label = "prompt-import-save-read"
     const previous = await readConfig()
     const prompt = { name: "Acceptance prompt import recovery", systemPrompt: "", prompt: "Translate this fictional acceptance text: {{input}}" }
     let ui
     try {
       await h.configure({ uiLocale: "en" })
-      await worker.evaluate(h.installStorageBoundary)
       ui = await open()
-      const label = "prompt-import-save-read"
-      // Both use real Chrome storage. The legacy UI reads locally; the current
-      // configuration message performs its commit read in the real worker.
-      for (const surface of [ui, worker]) {
-        await surface.evaluate(value => globalThis.__E2E_NATIVE_STORAGE__.plans.push({
-          area: "local", method: "get", key: "config", action: "reject", label: value,
-        }), label)
-      }
+      await installConfigurationSaveReadFault(worker, h.installStorageBoundary, ui.url(), label)
       await upload(ui, "valid-prompt-import", [prompt])
-      await h.until(async () => {
-        const observed = await Promise.all([ui, worker].map(surface => surface.evaluate(value =>
-          globalThis.__E2E_NATIVE_STORAGE__.calls.some(call => call.label === value && call.forwarded && call.settled), label)))
-        return observed.some(Boolean)
-      }, "the real configuration save receives its injected native storage failure")
-      for (const surface of [ui, worker]) {
-        await surface.evaluate((value) => {
-          globalThis.__E2E_NATIVE_STORAGE__.plans = globalThis.__E2E_NATIVE_STORAGE__.plans.filter(plan => plan.label !== value)
-        }, label)
-      }
+      const saveFault = await waitForConfigurationSaveReadFault(worker, h.until, label)
       await h.until(async () => await ui.locator("[data-sonner-toast][data-type=error]").count() > 0, "the failed import save is exposed to the reader")
-      const failed = await record(ui, name, "failed-save")
+      const failed = await record(ui, name, "failed-save", { saveFault })
       assert.deepEqual(failed.saved, previous.translate.customPromptsConfig, "a failed save must leave the real prompt configuration unchanged")
 
       await ui.reload()
@@ -85,9 +70,7 @@ export async function runConfigActionCases(h) {
       assert.equal(failed.successToasts, 0, "an import whose native save failed must never announce Import Success")
     }
     finally {
-      await worker.evaluate(() => {
-        globalThis.__E2E_NATIVE_STORAGE__.plans = globalThis.__E2E_NATIVE_STORAGE__.plans.filter(plan => plan.label !== "prompt-import-save-read")
-      })
+      await removeConfigurationSaveReadFault(worker, label)
       if (ui && !ui.isClosed())
         await ui.close()
       await h.configure(previous)

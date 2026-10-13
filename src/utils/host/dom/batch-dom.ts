@@ -102,17 +102,3 @@ export function batchDOMOperation(operation: DOMOperation): void {
 export function flushBatchedOperations(): void {
   domBatcher.flushImmediate()
 }
-
-/**
- * Create a DocumentFragment for batch appending multiple nodes
- * This is useful when you need to insert multiple nodes at once
- *
- * @example
- * const fragment = createFragment()
- * fragment.appendChild(child1)
- * fragment.appendChild(child2)
- * batchDOMOperation(() => parent.appendChild(fragment))
- */
-export function createFragment(ownerDocument: Document = document): DocumentFragment {
-  return ownerDocument.createDocumentFragment()
-}

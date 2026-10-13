@@ -2,7 +2,7 @@ import type { PartialDeep } from "type-fest"
 import type { ProviderConfig } from "@/types/config/provider"
 import { describe, expect, it } from "vitest"
 import { DEFAULT_PROVIDER_CONFIG } from "@/utils/constants/providers"
-import { updateLLMProviderConfig, updateProviderConfig } from "../provider"
+import { updateLLMProviderConfig } from "../provider"
 
 type OpenAIProviderConfig = Extract<ProviderConfig, { provider: "openai" }>
 
@@ -24,7 +24,7 @@ describe("provider config updates", () => {
   })
 
   it("merges provider option objects and preserves the rest of the config", () => {
-    const result = updateProviderConfig(DEFAULT_PROVIDER_CONFIG.openai, {
+    const result = updateLLMProviderConfig(DEFAULT_PROVIDER_CONFIG.openai, {
       providerOptions: {
         reasoningEffort: "minimal",
       },
@@ -36,7 +36,7 @@ describe("provider config updates", () => {
   })
 
   it("merges provider headers and preserves the rest of the config", () => {
-    const result = updateProviderConfig(DEFAULT_PROVIDER_CONFIG.openai, {
+    const result = updateLLMProviderConfig(DEFAULT_PROVIDER_CONFIG.openai, {
       headers: {
         "X-Test": "1",
       },
@@ -52,6 +52,6 @@ describe("provider config updates", () => {
       provider: "openai",
     } as PartialDeep<ProviderConfig>
 
-    expect(() => updateProviderConfig(DEFAULT_PROVIDER_CONFIG.deepseek, invalidUpdates)).toThrow()
+    expect(() => updateLLMProviderConfig(DEFAULT_PROVIDER_CONFIG.deepseek, invalidUpdates)).toThrow()
   })
 })
