@@ -10,7 +10,7 @@ import { assertContentScriptActive } from "@/utils/content-script/lifecycle"
 import { i18n } from "@/utils/i18n"
 
 import { logger } from "@/utils/logger"
-import { getTranslatePrompt } from "@/utils/prompts/translate"
+import { getTranslatePrompt, getTranslatePromptFromConfig } from "@/utils/prompts/translate"
 import { Sha256Hex } from "../../hash"
 import { sendMessage } from "../../message"
 import { prepareTranslationText } from "./text-preparation"
@@ -41,6 +41,8 @@ async function buildWebPageHashComponents(
   partialLangConfig: { sourceCode: LangCodeISO6393 | "auto", targetCode: LangCodeISO6393 },
   enableAIContentAware: boolean,
   webPageContext?: WebPagePromptContext,
+  customPromptsConfig?: Config["translate"]["customPromptsConfig"],
+  checkpoint?: () => void,
 ): Promise<string[]> {
   const preparedText = prepareTranslationText(text)
   const normalizedWebPageContext = normalizeWebPagePromptContext(webPageContext)
@@ -56,10 +58,14 @@ async function buildWebPageHashComponents(
   }
 
   const targetLangName = LANG_CODE_TO_EN_NAME[partialLangConfig.targetCode]
-  const { systemPrompt, prompt } = await getTranslatePrompt(targetLangName, preparedText, {
+  const promptOptions = {
     isBatch: true,
     context: normalizedWebPageContext,
-  })
+  }
+  const { systemPrompt, prompt } = customPromptsConfig === undefined
+    ? await getTranslatePrompt(targetLangName, preparedText, promptOptions)
+    : getTranslatePromptFromConfig({ customPromptsConfig }, targetLangName, preparedText, promptOptions)
+  checkpoint?.()
   hashComponents.push(systemPrompt, prompt)
   hashComponents.push(enableAIContentAware ? "enableAIContentAware=true" : "enableAIContentAware=false")
 
@@ -89,6 +95,8 @@ export interface TranslateTextOptions {
   enableAIContentAware?: boolean
   extraHashTags?: string[]
   webPageContext?: WebPagePromptContext
+  customPromptsConfig?: Config["translate"]["customPromptsConfig"]
+  checkpoint?: () => void
 }
 
 /**
@@ -103,8 +111,11 @@ export async function translateTextCore(options: TranslateTextOptions): Promise<
     enableAIContentAware = false,
     extraHashTags = [],
     webPageContext,
+    customPromptsConfig,
+    checkpoint,
   } = options
 
+  checkpoint?.()
   const preparedText = prepareTranslationText(text)
   if (preparedText === "") {
     return ""
@@ -118,16 +129,21 @@ export async function translateTextCore(options: TranslateTextOptions): Promise<
     { sourceCode: langConfig.sourceCode, targetCode: langConfig.targetCode },
     enableAIContentAware,
     normalizedWebPageContext,
+    customPromptsConfig,
+    checkpoint,
   )
+  checkpoint?.()
 
   // Add extra hash tags for cache differentiation
   hashComponents.push(...extraHashTags)
 
   assertContentScriptActive()
-  return await sendMessage("enqueueTranslateRequest", {
+  checkpoint?.()
+  const result = await sendMessage("enqueueTranslateRequest", {
     text: preparedText,
     langConfig,
     providerConfig,
+    customPromptsConfig,
     scheduleAt: Date.now(),
     hash: Sha256Hex(...hashComponents),
     webTitle: normalizedWebPageContext?.webTitle,
@@ -135,6 +151,8 @@ export async function translateTextCore(options: TranslateTextOptions): Promise<
     webContent: normalizedWebPageContext?.webContent,
     webSummary: normalizedWebPageContext?.webSummary,
   })
+  checkpoint?.()
+  return result
 }
 
 export function validateTranslationConfigAndToast(

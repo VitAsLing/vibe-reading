@@ -1,7 +1,7 @@
 import type { PromptConfigList } from "./utils/prompt-file"
 import { Icon } from "@iconify/react/dist/iconify.js"
-import { useAtom } from "jotai"
-import { useId } from "react"
+import { useSetAtom } from "jotai"
+import { useEffect, useId, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/base-ui/button"
 import { Input } from "@/components/ui/base-ui/input"
@@ -13,11 +13,15 @@ import { analysisJSONFile } from "./utils/prompt-file"
 
 export function ImportPrompts() {
   const promptAtoms = usePromptAtoms()
-  const [config, setConfig] = useAtom(promptAtoms.config)
+  const setConfig = useSetAtom(promptAtoms.config)
   const inputId = useId()
+  const [isImporting, setIsImporting] = useState(false)
+  const operationVersionRef = useRef(0)
+  useEffect(() => () => {
+    operationVersionRef.current++
+  }, [])
 
   const injectPrompts = (list: PromptConfigList) => {
-    const originPatterns = config.patterns
     const patterns = list.map(item => ({
       ...item,
       id: getRandomUUID(),
@@ -25,22 +29,30 @@ export function ImportPrompts() {
       systemPrompt: item.systemPrompt ?? "",
     }))
 
-    setConfig({
-      ...config,
-      patterns: [...originPatterns, ...patterns],
-    })
+    return setConfig(current => ({
+      ...current,
+      patterns: [...current.patterns, ...patterns],
+    }))
   }
 
   const importPrompts = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.currentTarget
+    const file = input.files?.[0]
+    if (!file || isImporting)
+      return
+    const version = ++operationVersionRef.current
+    setIsImporting(true)
     try {
-      const files = e.target.files
-      if (!files || !files[0])
+      const promptConfig = await analysisJSONFile(file)
+      if (version !== operationVersionRef.current)
         return
-      const promptConfig = await analysisJSONFile(files[0])
-      injectPrompts(promptConfig)
-      toast.success(`${i18n.t("options.translation.personalizedPrompts.importSuccess")} !`)
+      await injectPrompts(promptConfig)
+      if (version === operationVersionRef.current)
+        toast.success(`${i18n.t("options.translation.personalizedPrompts.importSuccess")} !`)
     }
     catch (error) {
+      if (version !== operationVersionRef.current)
+        return
       if (error instanceof Error) {
         toast.error(error.message)
       }
@@ -49,13 +61,15 @@ export function ImportPrompts() {
       }
     }
     finally {
-      e.target.value = ""
-      e.target.files = null
+      input.value = ""
+      input.files = null
+      if (version === operationVersionRef.current)
+        setIsImporting(false)
     }
   }
 
   return (
-    <Button variant="outline" className="p-0">
+    <Button variant="outline" className="p-0" disabled={isImporting}>
       <Label htmlFor={inputId} className="w-full px-3">
         <Icon icon="tabler:file-import" className="size-4" />
         {i18n.t("options.translation.personalizedPrompts.import")}
@@ -65,6 +79,7 @@ export function ImportPrompts() {
         id={inputId}
         className="hidden"
         accept=".json"
+        disabled={isImporting}
         onChange={importPrompts}
       />
     </Button>

@@ -1,21 +1,19 @@
 import type { Config } from "@/types/config/config"
-import { deepmergeCustom } from "deepmerge-ts"
 import { atom } from "jotai"
 import { selectAtom } from "jotai/utils"
 import { toast } from "sonner"
 import { configSchema } from "@/types/config/config"
+import { getChangedConfigFields, mergeWithArrayOverwrite } from "@/utils/config/merge"
 import { isContentScriptActive, isContentScriptInvalidationError, runContentScriptTask } from "@/utils/content-script/lifecycle"
 import { i18n } from "@/utils/i18n"
+import { sendMessage } from "@/utils/message"
 import { CONFIG_STORAGE_KEY, DEFAULT_CONFIG } from "../constants/config"
 import { logger } from "../logger"
 import { storageAdapter } from "./storage-adapter"
 
 export const configAtom = atom<Config>(DEFAULT_CONFIG)
 
-export const mergeWithArrayOverwrite = deepmergeCustom({
-  // Use the last (source) array
-  mergeArrays: values => values[values.length - 1],
-})
+export { mergeWithArrayOverwrite } from "@/utils/config/merge"
 
 /**
  * Promise-chain queue for serializing storage writes.
@@ -28,15 +26,30 @@ export const mergeWithArrayOverwrite = deepmergeCustom({
  */
 let writeQueue: Promise<void> = Promise.resolve()
 
-/**
- * Global counter to detect stale writes.
- *
- * Each write captures its version at invocation time. After async storage completes,
- * we compare captured vs current version to determine if this is still the latest write.
- * This prevents older writes from overwriting the optimistic UI state.
- */
+// Writes invalidate older hydration reads. Storage observations also take
+// ownership from delayed save acknowledgements in this document.
 let writeVersion = 0
 let confirmedConfig: Config | undefined
+let confirmationVersion = 0
+const pendingPatches = new Map<number, Partial<Config>>()
+
+function confirmConfig(config: Config): void {
+  confirmedConfig = config
+  confirmationVersion++
+}
+
+function withPendingWrites(config: Config): Config {
+  const next = [...pendingPatches.values()].reduce<Partial<Config>>((value, patch) => mergeWithArrayOverwrite(value, patch), config)
+  const parsed = configSchema.safeParse(next)
+  // An external commit can invalidate an unconfirmed collection edit. Keep
+  // confirmed state until the background returns its explicit conflict.
+  return parsed.success ? parsed.data : config
+}
+
+function reportSaveFailure(error: unknown): void {
+  if (!isContentScriptInvalidationError(error))
+    toast.error(i18n.t("errorRecovery.saveFailed"))
+}
 
 export const writeConfigAtom = atom(
   null,
@@ -46,11 +59,26 @@ export const writeConfigAtom = atom(
     // ─────────────────────────────────────────────────────────────────────────
     const localPrev = get(configAtom)
     confirmedConfig ??= localPrev
-    const optimisticNext = mergeWithArrayOverwrite(localPrev, patch)
+    // Validate external/editor input before React sees optimistic values.
+    // A malformed import must never render an object as a prompt's name.
+    const parsed = configSchema.safeParse(mergeWithArrayOverwrite(localPrev, patch))
+    if (!parsed.success) {
+      const failure = Promise.reject(parsed.error)
+      void failure.catch(reportSaveFailure)
+      return failure
+    }
+    const optimisticNext = parsed.data
+    const changedPatch = getChangedConfigFields(localPrev, optimisticNext)
+    const collectionBase = {
+      ...(changedPatch.providersConfig !== undefined && { providersConfig: localPrev.providersConfig }),
+      ...(changedPatch.translate?.customPromptsConfig !== undefined
+        && { customPromptsConfig: localPrev.translate.customPromptsConfig }),
+    }
     set(configAtom, optimisticNext)
 
     // Capture version for this write (used for stale-write detection later)
     const currentWriteVersion = ++writeVersion
+    pendingPatches.set(currentWriteVersion, changedPatch)
 
     // ─────────────────────────────────────────────────────────────────────────
     // STEP 2: Queue the actual storage write
@@ -59,37 +87,22 @@ export const writeConfigAtom = atom(
     // Note: `.then(callback)` schedules callback to microtask queue (async),
     // but `writeQueue = task` assignment happens synchronously.
     const task = writeQueue.then(async () => {
-      // Always read fresh from storage to capture any writes that completed before us.
-      // This ensures we don't lose concurrent field updates:
-      //   write({x:1}) then write({y:2}) → storage ends up with {x:1, y:2}
+      const observedVersion = confirmationVersion
       try {
-        const configInStorage = await storageAdapter.get<Config>(CONFIG_STORAGE_KEY, DEFAULT_CONFIG, configSchema)
-        confirmedConfig = configInStorage
-        const nextToPersist = mergeWithArrayOverwrite(configInStorage, patch)
-        // Storage write always executes (not affected by version check)
-        await storageAdapter.set(CONFIG_STORAGE_KEY, nextToPersist, configSchema)
-        confirmedConfig = nextToPersist
-        await storageAdapter.setMeta(CONFIG_STORAGE_KEY, { lastModifiedAt: Date.now() })
-
-        // ───────────────────────────────────────────────────────────────────
-        // STEP 3: Reconcile atom with persisted value (stale-write check)
-        // ───────────────────────────────────────────────────────────────────
-        // Only update atom if no newer writes happened since we started.
-        // If a newer write exists, its optimistic update already set the correct UI state,
-        // so we skip to avoid "flashing back" to this older value.
-        if (currentWriteVersion === writeVersion) {
-          set(configAtom, nextToPersist)
-        }
+        // The background owns the fresh read, merge and persistence across all
+        // documents; each document still preserves its own submission order.
+        const nextToPersist = await sendMessage("saveConfiguration", { patch: changedPatch, collectionBase })
+        if (confirmationVersion === observedVersion)
+          confirmConfig(nextToPersist)
       }
       catch (error) {
         logger.warn("Failed to confirm configuration save:", error)
-
-        // Roll back to storage value on error, but only if we're still the latest write.
-        if (currentWriteVersion === writeVersion) {
-          set(configAtom, confirmedConfig ?? localPrev)
-        }
-
         throw error
+      }
+      finally {
+        pendingPatches.delete(currentWriteVersion)
+        if (isContentScriptActive())
+          set(configAtom, withPendingWrites(confirmedConfig ?? localPrev))
       }
     })
 
@@ -97,11 +110,7 @@ export const writeConfigAtom = atom(
     // Return the original handled promise. Awaiting callers still receive the
     // failure; settings callbacks that ignore it cannot create a second,
     // unhandled async wrapper or silently leave optimistic values in the UI.
-    writeQueue = task.catch((error) => {
-      if (!isContentScriptInvalidationError(error)) {
-        toast.error(i18n.t("errorRecovery.saveFailed"))
-      }
-    })
+    writeQueue = task.catch(reportSaveFailure)
 
     return task
   },
@@ -125,8 +134,8 @@ configAtom.onMount = (setAtom: (newValue: Config) => void) => {
     runContentScriptTask(async () => {
       const value = await storageAdapter.get<Config>(CONFIG_STORAGE_KEY, DEFAULT_CONFIG, configSchema)
       if (mounted && isContentScriptActive() && version === readVersion && currentWriteVersion === writeVersion) {
-        confirmedConfig = value
-        setAtom(value)
+        confirmConfig(value)
+        setAtom(withPendingWrites(value))
       }
     }, "Failed to load configuration:")
   }
@@ -137,8 +146,8 @@ configAtom.onMount = (setAtom: (newValue: Config) => void) => {
     if (!mounted || !isContentScriptActive())
       return
     readVersion++
-    confirmedConfig = value
-    setAtom(value)
+    confirmConfig(value)
+    setAtom(withPendingWrites(value))
   })
 
   // Handle tab reactivation - inactive tabs may miss storage watch events,

@@ -49,7 +49,7 @@ export async function translateNodesBilingualMode(
   try {
     const lastNode = transNodes.at(-1)!
     const targetNode = transNodes.length === 1 && isBlockTransNode(lastNode) && isHTMLElement(lastNode)
-      ? await operation.mutate(() => unwrapDeepestOnlyHTMLChild(lastNode, config))
+      ? operation.mutate(() => unwrapDeepestOnlyHTMLChild(lastNode, config, write => operation.mutate(write)))
       : lastNode
     if (!targetNode || !operation.isCurrent())
       return
@@ -111,7 +111,7 @@ export async function translateNodeTranslationOnlyMode(
     let allChildren: ChildNode[] = nodes
     const outerNode = outerNodes[0]
     if (outerNodes.length === 1 && isHTMLElement(outerNode)) {
-      const unwrapped = await operation.mutate(() => unwrapDeepestOnlyHTMLChild(outerNode, config))
+      const unwrapped = operation.mutate(() => unwrapDeepestOnlyHTMLChild(outerNode, config, write => operation.mutate(write)))
       if (!unwrapped || !operation.isCurrent())
         return
       allChildren = [...unwrapped.childNodes]

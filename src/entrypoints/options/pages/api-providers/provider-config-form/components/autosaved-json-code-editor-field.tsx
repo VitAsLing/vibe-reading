@@ -17,7 +17,7 @@ interface AutosavedJsonCodeEditorFieldProps<TValue extends Record<string, unknow
   syncSignal?: unknown
   parse: (input: string) => JsonEditorParseResult<TValue>
   onCommit: (value: TValue | undefined) => void
-  onSubmit: () => void | Promise<void>
+  onSubmit: () => void | boolean | Promise<void | boolean>
   serialize?: (value: TValue | undefined) => string
   height?: string
 }
@@ -44,6 +44,10 @@ export function AutosavedJsonCodeEditorField<TValue extends Record<string, unkno
   const lastCommittedJsonRef = useRef(externalJson)
   const pendingEditorCommitRef = useRef(false)
   const editorFocusedRef = useRef(false)
+  const saveVersionRef = useRef(0)
+  useEffect(() => () => {
+    saveVersionRef.current++
+  }, [])
 
   const syncJsonInput = useEffectEvent((nextJson: string) => {
     // eslint-disable-next-line react/set-state-in-effect
@@ -51,6 +55,7 @@ export function AutosavedJsonCodeEditorField<TValue extends Record<string, unkno
   })
 
   const resetSyncState = useEffectEvent(() => {
+    saveVersionRef.current++
     lastCommittedJsonRef.current = externalJson
     pendingEditorCommitRef.current = false
     syncJsonInput(externalJson)
@@ -75,8 +80,7 @@ export function AutosavedJsonCodeEditorField<TValue extends Record<string, unkno
   }, [resetKey])
 
   useEffect(() => {
-    if (pendingEditorCommitRef.current && externalJson === lastCommittedJsonRef.current) {
-      pendingEditorCommitRef.current = false
+    if (pendingEditorCommitRef.current) {
       return
     }
 
@@ -107,10 +111,21 @@ export function AutosavedJsonCodeEditorField<TValue extends Record<string, unkno
       return
     }
 
-    lastCommittedJsonRef.current = normalizedJson
+    const version = ++saveVersionRef.current
     pendingEditorCommitRef.current = true
     onCommit(parseResult.value)
-    void onSubmit()
+    void Promise.resolve(onSubmit()).then((saved) => {
+      if (version !== saveVersionRef.current)
+        return
+      pendingEditorCommitRef.current = false
+      if (saved !== false)
+        lastCommittedJsonRef.current = normalizedJson
+    }).catch(() => {
+      if (version === saveVersionRef.current)
+        pendingEditorCommitRef.current = false
+      // Leave the focused draft editable. The configuration writer reports the
+      // failure; this value remains eligible for a later deliberate edit.
+    })
   }, [onCommit, onSubmit, parseResult, serialize])
 
   const jsonError = !parseResult.valid ? parseResult.error : null

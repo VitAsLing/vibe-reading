@@ -1,8 +1,6 @@
 import type { Config } from "@/types/config/config"
 import type { Point } from "@/types/dom"
 
-import { getLocalConfig } from "@/utils/config/storage"
-import { DEFAULT_CONFIG } from "@/utils/constants/config"
 import { CONTENT_WRAPPER_CLASS } from "@/utils/constants/dom-labels"
 import { assertContentScriptActive } from "@/utils/content-script/lifecycle"
 import { isDontWalkIntoAndDontTranslateAsChildElement, isHTMLElement, isShallowInlineHTMLElement, isTranslatedContentNode, isTranslatedWrapperNode } from "./filter"
@@ -119,13 +117,11 @@ export function deepQueryTopLevelSelector(element: HTMLElement | ShadowRoot | Do
   return result
 }
 
-export async function unwrapDeepestOnlyHTMLChild(element: HTMLElement, currentConfig?: Config) {
-  assertContentScriptActive()
-  const config = currentConfig ?? await getLocalConfig() ?? DEFAULT_CONFIG
+export function unwrapDeepestOnlyHTMLChild(element: HTMLElement, config: Config, mutate: (write: () => void) => unknown) {
   assertContentScriptActive()
   let currentElement = element
   while (currentElement) {
-    smashTruncationStyle(currentElement)
+    smashTruncationStyle(currentElement, mutate)
 
     const shouldKeepNode = (child: ChildNode) => {
       if (!child.textContent?.trim())

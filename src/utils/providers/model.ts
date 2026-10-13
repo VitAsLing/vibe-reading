@@ -1,4 +1,5 @@
 import type { Config } from "@/types/config/config"
+import type { LLMProviderConfig } from "@/types/config/provider"
 import { createDeepSeek } from "@ai-sdk/deepseek"
 import { createOpenAI } from "@ai-sdk/openai"
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible"
@@ -15,7 +16,7 @@ const CREATE_AI_MAPPER = {
   "deepseek": createDeepSeek,
 } as const
 
-async function getLanguageModelById(providerId: string) {
+export async function getModelById(providerId: string) {
   const config = await storage.getItem<Config>(`local:${CONFIG_STORAGE_KEY}`)
   if (!config) {
     throw new Error("Config not found")
@@ -27,6 +28,10 @@ async function getLanguageModelById(providerId: string) {
     throw new Error(`Provider ${providerId} not found`)
   }
 
+  return getModelFromProviderConfig(providerConfig)
+}
+
+export function getModelFromProviderConfig(providerConfig: LLMProviderConfig) {
   const headers = getProviderHeadersWithOverride(providerConfig.provider, providerConfig.headers)
   const provider = isCustomLLMProvider(providerConfig.provider)
     ? CREATE_AI_MAPPER[providerConfig.provider]({
@@ -49,8 +54,4 @@ async function getLanguageModelById(providerId: string) {
   }
 
   return provider.languageModel(modelId)
-}
-
-export async function getModelById(providerId: string) {
-  return getLanguageModelById(providerId)
 }

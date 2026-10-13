@@ -1,8 +1,8 @@
 import type { Config } from "@/types/config/config"
 import type { ProviderConfig } from "@/types/config/provider"
 import { isTranslateProvider } from "@/types/config/provider"
-import { mergeWithArrayOverwrite } from "../atoms/config"
 import { getProviderConfigById } from "../config/helpers"
+import { mergeWithArrayOverwrite } from "../config/merge"
 
 export const FEATURE_KEYS = [
   "translate",

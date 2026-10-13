@@ -4,13 +4,14 @@ import type { customPromptsConfigSchema } from "@/types/config/translate"
 import { createContext, use } from "react"
 
 export type CustomPromptsConfig = z.infer<typeof customPromptsConfigSchema>
+export type PromptConfigUpdate = CustomPromptsConfig | ((current: CustomPromptsConfig) => CustomPromptsConfig)
 export interface PromptInsertCell {
   text: string
   description: string
 }
 
 export interface PromptAtoms {
-  config: WritableAtom<CustomPromptsConfig, [CustomPromptsConfig], void>
+  config: WritableAtom<CustomPromptsConfig, [PromptConfigUpdate], Promise<void>>
   exportMode: PrimitiveAtom<boolean>
   selectedPrompts: PrimitiveAtom<string[]>
 }

@@ -12,6 +12,13 @@ import { defineExtensionMessaging } from "@webext-core/messaging"
 interface ProtocolMap {
   // navigation
   openOptionsPage: (data?: { route?: `/${string}` }) => void
+  saveConfiguration: (data: {
+    patch: Partial<Config>
+    collectionBase: {
+      providersConfig?: Config["providersConfig"]
+      customPromptsConfig?: Config["translate"]["customPromptsConfig"]
+    }
+  }) => Promise<Config>
   // translation state
   getEnablePageTranslationByTabId: (data: { tabId: number }) => boolean | undefined
   getEnablePageTranslationFromContentScript: () => Promise<boolean>
@@ -26,7 +33,7 @@ interface ProtocolMap {
   // ask host to start page translation
   askManagerToTogglePageTranslation: (data: { enabled: boolean }) => boolean
   // request
-  enqueueTranslateRequest: (data: { text: string, langConfig: Config["language"], providerConfig: ProviderConfig, scheduleAt: number, hash: string, webTitle?: string | null, webDescription?: string | null, webContent?: string | null, webSummary?: string | null }) => Promise<string>
+  enqueueTranslateRequest: (data: { text: string, langConfig: Config["language"], providerConfig: ProviderConfig, customPromptsConfig?: Config["translate"]["customPromptsConfig"], scheduleAt: number, hash: string, webTitle?: string | null, webDescription?: string | null, webContent?: string | null, webSummary?: string | null }) => Promise<string>
   getOrGenerateWebPageSummary: (data: { webTitle: string, webContent: string, providerConfig: ProviderConfig }) => Promise<string | null>
   backgroundGenerateText: (data: BackgroundGenerateTextPayload) => Promise<BackgroundGenerateTextResponse>
   setTranslateRequestQueueConfig: (data: Partial<RequestQueueConfig>) => void

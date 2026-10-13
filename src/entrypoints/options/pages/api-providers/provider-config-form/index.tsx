@@ -5,7 +5,6 @@ import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -53,8 +52,12 @@ export function ProviderConfigForm() {
 
   const form = useAppForm({
     ...specificFormOpts,
-    onSubmit: async ({ value }) => {
-      void setProviderConfig(value)
+    onSubmit: ({ value, meta }) => {
+      // Keep form validation available for subsequent edits while persistence
+      // is queued; callers use their receipt to await the actual save.
+      const task = setProviderConfig(value)
+      if (meta)
+        meta.persistence = task
     },
   })
 
@@ -63,6 +66,7 @@ export function ProviderConfigForm() {
   const isLLM = isLLMProvider(providerType)
 
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   useEffect(() => {
     if (providerConfig && isAPIProviderConfig(providerConfig)) {
@@ -94,12 +98,15 @@ export function ProviderConfigForm() {
     const fallbacks = computeProviderFallbacksAfterDeletion(providerConfig.id, config, updatedAllProviders)
     const patch = buildFeatureProviderPatch(fallbacks)
 
-    if (Object.keys(patch).length > 0) {
-      await setConfig(patch)
+    setIsDeleting(true)
+    try {
+      await setConfig({ ...patch, providersConfig: updatedAllProviders })
+      setSelectedProviderId(chooseNextProviderConfig(updatedAllProviders).id)
+      setShowDeleteDialog(false)
     }
-
-    await setAllProvidersConfig(updatedAllProviders)
-    setSelectedProviderId(chooseNextProviderConfig(updatedAllProviders).id)
+    finally {
+      setIsDeleting(false)
+    }
   }
 
   return (
@@ -156,7 +163,7 @@ export function ProviderConfigForm() {
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>{i18n.t("options.apiProviders.form.deleteDialog.cancel")}</AlertDialogCancel>
-                <AlertDialogAction variant="destructive" onClick={() => { void handleDelete().catch(error => logger.warn("Settings action did not complete:", error)) }}>{i18n.t("options.apiProviders.form.deleteDialog.confirm")}</AlertDialogAction>
+                <Button variant="destructive" disabled={isDeleting} onClick={() => { void handleDelete().catch(error => logger.warn("Settings action did not complete:", error)) }}>{i18n.t("options.apiProviders.form.deleteDialog.confirm")}</Button>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>

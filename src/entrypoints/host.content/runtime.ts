@@ -1,10 +1,12 @@
 import type { ContentScriptContext } from "#imports"
 import type { Config } from "@/types/config/config"
 import { storageAdapter } from "@/utils/atoms/storage-adapter"
+import { getLocalConfig } from "@/utils/config/storage"
 import { CONFIG_STORAGE_KEY, DEFAULT_CONFIG } from "@/utils/constants/config"
 import { isContentScriptActive, reportContentScriptError, runContentScriptTask } from "@/utils/content-script/lifecycle"
 import { detectPageLanguageLightweight } from "@/utils/content/page-language"
 import { cancelDocumentTranslations, initializeTranslationOperations } from "@/utils/host/translate/core/translation-operations"
+import { setContentTranslationNodeStyle } from "@/utils/host/translate/ui/decorate-translation"
 import { ensurePresetStyles } from "@/utils/host/translate/ui/style-injector"
 import { logger } from "@/utils/logger"
 import { onMessage, sendMessage } from "@/utils/message"
@@ -59,11 +61,26 @@ export async function bootstrapHostContent(ctx: ContentScriptContext, initialCon
     addCleanup(() => manager.dispose())
     addCleanup(manager.registerPageTranslationTriggers())
     let previousConfig = initialConfig
+    let configVersion = 0
+    setContentTranslationNodeStyle(null)
+    addCleanup(() => setContentTranslationNodeStyle(null))
     addCleanup(storageAdapter.watch<Config>(CONFIG_STORAGE_KEY, (config) => {
+      configVersion++
       const previous = previousConfig
       previousConfig = config
+      setContentTranslationNodeStyle(config.translate.translationNodeStyle)
       handleTranslationModeChange(config, previous, manager)
     }))
+    // A setting saved before this listener was registered may be newer than
+    // bootstrap's config. An observed update owns any late initial read.
+    const readVersion = configVersion
+    const currentConfig = await getLocalConfig()
+    if (!isContentScriptActive())
+      return
+    if (readVersion === configVersion && currentConfig) {
+      previousConfig = currentConfig
+      setContentTranslationNodeStyle(currentConfig.translate.translationNodeStyle)
+    }
     addCleanup(await bindTranslationShortcutKey(manager))
     if (!isContentScriptActive())
       return

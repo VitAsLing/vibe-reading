@@ -7,7 +7,6 @@ import { logger } from "@/utils/logger"
 import { onMessage, sendMessage } from "@/utils/message"
 import { injectHostContentIntoCurrentTabIframesAfterNodeTranslation, injectHostContentIntoTabIframes } from "./iframe-injection"
 import {
-  getPageTranslationEnabled,
   getPageTranslationState,
   isPageTranslationStateInUrlScope,
   setPageTranslationEnabled,
@@ -221,7 +220,11 @@ export function translationMessage() {
 
   // === Helper Functions ===
   async function getTranslationState(tabId: number): Promise<boolean> {
-    return await getPageTranslationEnabled(tabId)
+    const state = await getPageTranslationState(tabId)
+    // A content bootstrap can run before onCommitted finishes clearing the old
+    // state. Validate against the live top-tab URL, including iframe callers.
+    const tab = await browser.tabs.get(tabId)
+    return isPageTranslationStateInUrlScope(state, tab.url)
   }
 
   // === Cleanup ===

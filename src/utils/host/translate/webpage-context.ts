@@ -16,9 +16,10 @@ function createDefuddleSnapshotDocument() {
   return clonedDoc
 }
 
-async function extractWebpageContent(): Promise<string> {
+async function extractWebpageContent(checkpoint?: () => void): Promise<string> {
   try {
     const { default: Defuddle, createMarkdownContent } = await import("defuddle/full")
+    checkpoint?.()
     const snapshotDoc = createDefuddleSnapshotDocument()
     const result = new Defuddle(snapshotDoc, {
       separateMarkdown: true,
@@ -32,12 +33,16 @@ async function extractWebpageContent(): Promise<string> {
       return createMarkdownContent(result.content, window.location.href)
   }
   catch (error) {
+    // Cancellation is an operation boundary, not a parser failure or a reason
+    // to fill the old request with the new page's body text.
+    checkpoint?.()
     logger.warn("Defuddle parsing failed, falling back to body text:", error)
   }
   return document.body?.textContent || ""
 }
 
-export async function getOrCreateWebPageContext(): Promise<CachedWebPageContext | null> {
+export async function getOrCreateWebPageContext(checkpoint?: () => void): Promise<CachedWebPageContext | null> {
+  checkpoint?.()
   if (typeof window === "undefined" || typeof document === "undefined")
     return null
 
@@ -46,11 +51,15 @@ export async function getOrCreateWebPageContext(): Promise<CachedWebPageContext 
     return cachedWebPageContext
   }
 
+  const webContent = await extractWebpageContent(checkpoint)
+  checkpoint?.()
+  if (window.location.href !== currentUrl)
+    return null
   cachedWebPageContext = {
     url: currentUrl,
     webTitle: document.title || "",
     webDescription: getDocumentDescription(document),
-    webContent: truncateWebPageContent(await extractWebpageContent()),
+    webContent: truncateWebPageContent(webContent),
   }
   return cachedWebPageContext
 }

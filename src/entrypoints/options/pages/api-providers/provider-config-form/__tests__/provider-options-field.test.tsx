@@ -69,12 +69,15 @@ function ProviderOptionsFieldHarness({
   const form = useAppForm({
     ...formOpts,
     defaultValues: providerConfig,
-    onSubmit: async ({ value }) => {
-      if (submitDelayMs > 0) {
-        await new Promise(resolve => window.setTimeout(resolve, submitDelayMs))
-      }
-
-      setProviderConfig(submitDelayMs > 0 ? structuredClone(value) : value)
+    onSubmit: ({ value, meta }) => {
+      const task = (async () => {
+        if (submitDelayMs > 0) {
+          await new Promise(resolve => window.setTimeout(resolve, submitDelayMs))
+        }
+        setProviderConfig(submitDelayMs > 0 ? structuredClone(value) : value)
+      })()
+      if (meta)
+        meta.persistence = task
     },
   })
 

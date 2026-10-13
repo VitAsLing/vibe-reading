@@ -1,6 +1,7 @@
 import type { UILocale } from "@/types/config/config"
 import { Icon } from "@iconify/react"
 import { useAtomValue, useSetAtom } from "jotai"
+import { useEffect, useRef } from "react"
 import {
   Select,
   SelectContent,
@@ -31,6 +32,10 @@ const UI_LOCALE_ITEMS: Array<{
 export default function InterfaceLanguageSettings() {
   const uiLocale = useAtomValue(configFieldsAtomMap.uiLocale)
   const setConfig = useSetAtom(writeConfigAtom)
+  const requestVersionRef = useRef(0)
+  useEffect(() => () => {
+    requestVersionRef.current++
+  }, [])
   const currentItem = UI_LOCALE_ITEMS.find(item => item.value === uiLocale) ?? UI_LOCALE_ITEMS[0]
 
   async function handleLocaleChange(value: string) {
@@ -38,8 +43,10 @@ export default function InterfaceLanguageSettings() {
       return
     }
 
+    const version = ++requestVersionRef.current
     await setConfig({ uiLocale: value as UILocale })
-    window.location.reload()
+    if (version === requestVersionRef.current)
+      window.location.reload()
   }
 
   return (

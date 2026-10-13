@@ -19,10 +19,10 @@ export function PromptList() {
   const currentPromptId = config.promptId
 
   const setCurrentPromptId = (value: string | null) => {
-    setConfig({
-      ...config,
+    void setConfig(current => ({
+      ...current,
       promptId: value,
-    })
+    })).catch(() => {})
   }
 
   return (

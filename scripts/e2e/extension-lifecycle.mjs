@@ -8,6 +8,11 @@ import path from "node:path"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 import { chromium } from "playwright"
+import { runBackgroundRecoveryCases } from "./boundaries/background-recovery.mjs"
+import { runConfigActionCases } from "./boundaries/config-actions.mjs"
+import { runConfigAtomicCases } from "./boundaries/config-atomic.mjs"
+import { runConfigConcurrencyCases } from "./boundaries/config-concurrency.mjs"
+import { runContentCleanupCases } from "./boundaries/content-cleanup.mjs"
 import { runContentBoundaryCases } from "./boundaries/content.mjs"
 import { runErrorBoundaryCases } from "./boundaries/errors.mjs"
 import { runInputBoundaryCases } from "./boundaries/input.mjs"
@@ -15,8 +20,10 @@ import { runReloadBoundaryCases } from "./boundaries/reload.mjs"
 import { runSettingsBoundaryCases } from "./boundaries/settings.mjs"
 import { runStateBoundaryCases } from "./boundaries/state.mjs"
 import { installStorageBoundary } from "./boundaries/storage.mjs"
+import { runUIAcknowledgementCases } from "./boundaries/ui-acknowledgement.mjs"
 import { runUIBoundaryCases } from "./boundaries/ui.mjs"
 import { launchNativeVisibilityBrowser } from "./native-browser.mjs"
+import { nativeAcceptanceCases } from "./native-cases.mjs"
 
 // This runs the production extension in Chromium. The remote model endpoint is
 // a fixture; one case delays a real Chrome message before forwarding it. All
@@ -25,10 +32,10 @@ const extensionPath = path.resolve(process.argv[2] ?? ".output/chrome-mv3")
 const outputPath = path.resolve(process.argv[3] ?? ".output/acceptance/extension-lifecycle")
 const baseline = process.argv.includes("--baseline")
 const selectedCase = process.argv.find(value => value.startsWith("--case="))?.slice(7)
-const selectedCases = new Set(selectedCase?.split(",") ?? [])
 const translationMode = process.argv.includes("--translation-only") ? "translationOnly" : "bilingual"
 const browserExecutable = process.env.E2E_BROWSER_EXECUTABLE ? path.resolve(process.env.E2E_BROWSER_EXECUTABLE) : undefined
 const nativeVisibility = process.env.E2E_NATIVE_VISIBILITY === "1"
+const selectedCases = new Set(selectedCase?.split(",") ?? (nativeVisibility ? nativeAcceptanceCases(translationMode) : []))
 await mkdir(outputPath, { recursive: true })
 const started = Date.now()
 const cases = []
@@ -46,6 +53,7 @@ let providerStatus = 200
 let providerFailureMessage = "E2E provider temporarily unavailable"
 let holdPending = false
 let context
+let nativeBrowserEndpoint
 let failure
 let manifest
 let sourceSnapshot
@@ -304,6 +312,7 @@ try {
     const launched = await launchNativeVisibilityBrowser({ executablePath: browserExecutable, extensionPath })
     context = launched.context
     closeNativeBrowser = launched.close
+    nativeBrowserEndpoint = launched.endpoint
   }
   else {
     context = await chromium.launchPersistentContext("", {
@@ -1047,7 +1056,7 @@ try {
     const setProviderFailureMessage = (message) => {
       providerFailureMessage = message
     }
-    const harness = { check, page, context, origin, extensionId, cdp, extensionWorker, configure, prepareHost, until, nodeGesture, hasTranslation, originalDom, waitForLanguage, publicMessage, inContentWorld, observePublicMessages, waitForMessageResult, recordMessages, requests, heldMarkers, heldResponses, releaseHeld, providerResponses, translationMode, outputPath, installStorageBoundary, setContentStoragePlan, releaseContentStorage, setProviderStatus, setProviderFailureMessage, reloadExtension, errors, contentWorld }
+    const harness = { check, page, context, origin, extensionId, cdp, extensionWorker, configure, prepareHost, until, nodeGesture, hasTranslation, originalDom, waitForLanguage, publicMessage, inContentWorld, observePublicMessages, waitForMessageResult, recordMessages, requests, heldMarkers, heldResponses, releaseHeld, providerResponses, translationMode, outputPath, installStorageBoundary, setContentStoragePlan, releaseContentStorage, setProviderStatus, setProviderFailureMessage, reloadExtension, errors, contentWorld, nativeBrowserEndpoint }
     await runContentBoundaryCases(harness)
     await runInputBoundaryCases(harness)
     await runStateBoundaryCases(harness)
@@ -1056,6 +1065,12 @@ try {
     if (nativeVisibility) {
       await runReloadBoundaryCases(harness)
       await runErrorBoundaryCases(harness)
+      await runConfigConcurrencyCases(harness)
+      await runConfigActionCases(harness)
+      await runConfigAtomicCases(harness)
+      await runContentCleanupCases(harness)
+      await runBackgroundRecoveryCases(harness)
+      await runUIAcknowledgementCases(harness)
     }
     for (const name of selectedCases)
       assert.ok(cases.some(item => item.name === name), `No applicable acceptance case: ${name}`)

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import path from "node:path"
+import { installConfigurationSaveReadFault, removeConfigurationSaveReadFault, waitForConfigurationSaveReadFault } from "./settings.mjs"
 
 export async function runUIBoundaryCases(h) {
   const { check, context, extensionId, extensionWorker, installStorageBoundary, until, outputPath } = h
@@ -54,12 +55,13 @@ export async function runUIBoundaryCases(h) {
       const reads = globalThis.__E2E_NATIVE_STORAGE__.calls.filter(call => call.area === "local" && call.method === "get" && call.keys.includes("config"))
       return reads.length >= 2 && reads.every(call => call.settled)
     }), "bootstrap and configuration hydration reads complete before save fault")
-    const current = await (await extensionWorker()).evaluate(async () => (await globalThis.chrome.storage.local.get("config")).config.language.sourceCode)
-    await ui.evaluate(() => globalThis.__E2E_NATIVE_STORAGE__.plans.push({ area: "local", method: "get", key: "config", action: "reject", label: "save-read" }))
+    const worker = await extensionWorker()
+    const current = await worker.evaluate(async () => (await globalThis.chrome.storage.local.get("config")).config.language.sourceCode)
+    await installConfigurationSaveReadFault(worker, installStorageBoundary, ui.url(), "save-read")
     await source.click()
     await ui.getByPlaceholder("Search languages...").fill("French")
     await ui.getByRole("option", { name: /French/ }).click()
-    await until(async () => await ui.evaluate(() => globalThis.__E2E_NATIVE_STORAGE__.calls.some(call => call.label === "save-read" && call.settled)), "real queued save read failed")
+    await waitForConfigurationSaveReadFault(worker, until, "save-read")
     assert.equal(await (await extensionWorker()).evaluate(async () => (await globalThis.chrome.storage.local.get("config")).config.language.sourceCode), current)
     await until(async () => (await source.textContent()).includes("English"), "failed optimistic source change rolls back")
     await until(async () => await ui.locator("[data-sonner-toast]").count() > 0, "failed save is visible to the user")
@@ -67,6 +69,7 @@ export async function runUIBoundaryCases(h) {
     await ui.getByPlaceholder("Search languages...").fill("French")
     await ui.getByRole("option", { name: /French/ }).click()
     await until(async () => await (await extensionWorker()).evaluate(async () => (await globalThis.chrome.storage.local.get("config")).config.language.sourceCode === "fra"), "next real save succeeds after read failure")
+    await removeConfigurationSaveReadFault(worker, "save-read")
     await ui.close()
     await h.configure({ language: { sourceCode: "eng" } })
   })

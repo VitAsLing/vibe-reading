@@ -66,9 +66,11 @@ function TranslateModelSelectorHarness({
   const form = useAppForm({
     ...formOpts,
     defaultValues: providerConfig,
-    onSubmit: async ({ value }) => {
+    onSubmit: ({ value, meta }) => {
       setSubmitCount(count => count + 1)
       setProviderConfig(value)
+      if (meta)
+        meta.persistence = Promise.resolve()
     },
   })
   const formValues = useStore(form.store, state => state.values)

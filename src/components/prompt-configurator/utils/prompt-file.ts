@@ -1,18 +1,21 @@
 import type { TranslatePromptObj } from "@/types/config/translate"
 import { saveAs } from "file-saver"
+import { z } from "zod"
+import { translatePromptObjSchema } from "@/types/config/translate"
 import { APP_NAME } from "@/utils/constants/app"
 
 export type PromptConfig = Omit<TranslatePromptObj, "id">
 export type PromptConfigList = PromptConfig[]
 
 const PROMPTS_FILE = `${APP_NAME}_prompts`
+const importedPromptsSchema = z.array(translatePromptObjSchema.omit({ id: true }).extend({
+  name: z.string().min(1),
+  prompt: z.string().min(1),
+  systemPrompt: z.string().default(""),
+}))
 
-export function checkPromptConfig(list: PromptConfig[]) {
-  if (!Array.isArray(list)) {
-    return false
-  }
-
-  return list.every(item => item.name && item.prompt)
+export function checkPromptConfig(list: unknown): list is PromptConfig[] {
+  return importedPromptsSchema.safeParse(list).success
 }
 
 export function downloadJSONFile(data: object) {
@@ -27,11 +30,9 @@ export function analysisJSONFile(file: File): Promise<PromptConfigList> {
     reader.readAsText(file)
     reader.onload = (e) => {
       try {
-        const fileResult = e.target?.result ?? "[]"
+        const fileResult = e.target?.result
         if (typeof fileResult === "string") {
-          const list = JSON.parse(fileResult)
-          const checked = checkPromptConfig(list)
-          checked ? resolve(list) : reject(new Error("Prompt config is invalid"))
+          resolve(importedPromptsSchema.parse(JSON.parse(fileResult)))
         }
         else {
           reject(new Error("Prompt config is invalid"))
@@ -41,6 +42,6 @@ export function analysisJSONFile(file: File): Promise<PromptConfigList> {
         reject(e)
       }
     }
-    reader.onerror = error => reject(error)
+    reader.onerror = () => reject(reader.error ?? new Error("Prompt file could not be read"))
   })
 }
