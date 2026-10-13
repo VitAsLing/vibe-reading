@@ -40,7 +40,7 @@ export default defineContentScript({
       }
     }
     catch (error) {
-      const invalidated = isContentScriptInvalidationError(error)
+      const invalidated = !ctx.isValid || isContentScriptInvalidationError(error)
       ctx.notifyInvalidated()
       if (!invalidated) {
         throw error
