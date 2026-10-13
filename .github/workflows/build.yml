@@ -86,6 +86,22 @@ jobs:
           pnpm e2e:extension .output/chrome-mv3 .output/acceptance/extension-lifecycle/translation-only --translation-only \
             2>&1 | tee .output/acceptance/extension-lifecycle/translation-only/run.log
 
+      - name: Native hidden and frozen reload E2E
+        if: ${{ !cancelled() && steps.lifecycle_setup.outcome == 'success' }}
+        shell: bash
+        run: |
+          for mode in bilingual translation-only; do
+            args=()
+            if [ "$mode" = "translation-only" ]; then
+              args+=(--translation-only)
+            fi
+            directory=".output/acceptance/extension-lifecycle/native-$mode"
+            mkdir -p "$directory"
+            E2E_NATIVE_VISIBILITY=1 pnpm e2e:extension .output/chrome-mv3 "$directory" \
+              --case=hidden-frozen-page-reload-recovery,live-channel-failure-stays-visible-and-recovers,pending-error-hydration-survives-frozen-reload \
+              "${args[@]}" 2>&1 | tee "$directory/run.log"
+          done
+
       - name: Upload lifecycle E2E artifacts
         if: ${{ always() && steps.lifecycle_setup.outcome == 'success' }}
         uses: actions/upload-artifact@v4

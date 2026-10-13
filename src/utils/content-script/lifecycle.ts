@@ -1,6 +1,7 @@
 import type { ContentScriptContext } from "#imports"
 
 let contentScriptContext: ContentScriptContext | undefined
+const messageConnectionError = /message (?:port|channel) closed|receiving end does not exist|^No response$/i
 
 export function initializeContentScriptLifecycle(ctx: ContentScriptContext): void {
   contentScriptContext = ctx
@@ -29,13 +30,34 @@ export function isContentScriptInvalidationError(error: unknown): boolean {
   }
 
   return !isContentScriptActive()
-    && /message (?:port|channel) closed|receiving end does not exist|^No response$/i.test(message)
+    && messageConnectionError.test(message)
 }
 
 export function reportContentScriptError(message: string, error: unknown): void {
-  if (!isContentScriptInvalidationError(error)) {
-    console.error(message, error)
+  if (isContentScriptInvalidationError(error))
+    return
+
+  const errorMessage = error instanceof Error ? error.message : String(error)
+  if (contentScriptContext && messageConnectionError.test(errorMessage)) {
+    const ctx = contentScriptContext
+    // Chrome can close pending replies before invalidating runtime.id. A frozen
+    // tab also receives these replies before its managed validity tick resumes.
+    // Recheck in the next managed task: reloading cancels it, while a live
+    // extension still reports the original failure. No request is retried.
+    let removeInvalidationListener = () => {}
+    const timeout = setTimeout(() => {
+      removeInvalidationListener()
+      if (ctx.isValid && !isContentScriptInvalidationError(error))
+        console.error(message, error)
+    }, 0)
+    removeInvalidationListener = ctx.onInvalidated(() => {
+      clearTimeout(timeout)
+      removeInvalidationListener()
+    })
+    return
   }
+
+  console.error(message, error)
 }
 
 export function runContentScriptTask(task: () => Promise<unknown>, message: string): void {
