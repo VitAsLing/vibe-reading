@@ -10,10 +10,12 @@ import { fileURLToPath } from "node:url"
 import { chromium } from "playwright"
 import { runContentBoundaryCases } from "./boundaries/content.mjs"
 import { runInputBoundaryCases } from "./boundaries/input.mjs"
+import { runReloadBoundaryCases } from "./boundaries/reload.mjs"
 import { runSettingsBoundaryCases } from "./boundaries/settings.mjs"
 import { runStateBoundaryCases } from "./boundaries/state.mjs"
 import { installStorageBoundary } from "./boundaries/storage.mjs"
 import { runUIBoundaryCases } from "./boundaries/ui.mjs"
+import { launchNativeVisibilityBrowser } from "./native-browser.mjs"
 
 // This runs the production extension in Chromium. The remote model endpoint is
 // a fixture; one case delays a real Chrome message before forwarding it. All
@@ -22,8 +24,10 @@ const extensionPath = path.resolve(process.argv[2] ?? ".output/chrome-mv3")
 const outputPath = path.resolve(process.argv[3] ?? ".output/acceptance/extension-lifecycle")
 const baseline = process.argv.includes("--baseline")
 const selectedCase = process.argv.find(value => value.startsWith("--case="))?.slice(7)
+const selectedCases = new Set(selectedCase?.split(",") ?? [])
 const translationMode = process.argv.includes("--translation-only") ? "translationOnly" : "bilingual"
 const browserExecutable = process.env.E2E_BROWSER_EXECUTABLE ? path.resolve(process.env.E2E_BROWSER_EXECUTABLE) : undefined
+const nativeVisibility = process.env.E2E_NATIVE_VISIBILITY === "1"
 await mkdir(outputPath, { recursive: true })
 const started = Date.now()
 const cases = []
@@ -48,6 +52,7 @@ let browserVersion
 let extensionId
 let tracingStarted = false
 let captureFailureState
+let closeNativeBrowser
 
 function recordFailure(phase, error) {
   diagnosticFailures.push({ phase, atMs: Date.now() - started, message: error.message, stack: error.stack })
@@ -260,7 +265,7 @@ async function until(predicate, label, timeoutMs = 15_000) {
 }
 
 async function check(name, action) {
-  if (selectedCase && name !== selectedCase && name !== "chrome-extension-error-list-empty")
+  if (selectedCases.size && !selectedCases.has(name) && name !== "chrome-extension-error-list-empty")
     return
   const start = Date.now()
   try {
@@ -293,11 +298,18 @@ try {
     server.listen(0, "127.0.0.1", resolve)
   })
   origin = `http://127.0.0.1:${server.address().port}`
-  context = await chromium.launchPersistentContext("", {
-    ...(browserExecutable ? { executablePath: browserExecutable } : { channel: "chromium" }), headless: true,
-    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
-    viewport: { width: 1200, height: 1000 },
-  })
+  if (nativeVisibility) {
+    const launched = await launchNativeVisibilityBrowser({ executablePath: browserExecutable, extensionPath })
+    context = launched.context
+    closeNativeBrowser = launched.close
+  }
+  else {
+    context = await chromium.launchPersistentContext("", {
+      ...(browserExecutable ? { executablePath: browserExecutable } : { channel: "chromium" }), headless: true,
+      args: ["--password-store=basic", "--use-mock-keychain", `--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+      viewport: { width: 1200, height: 1000 },
+    })
+  }
   await context.tracing.start({ screenshots: true, snapshots: true, sources: true })
   tracingStarted = true
   await context.addInitScript(() => {
@@ -464,6 +476,9 @@ try {
             forwarded[forwarded.length - 1] = (...values) => {
               entry.settled = true;
               entry.completedAt = Date.now();
+              entry.runtimeIdAtReply = globalThis.chrome.runtime.id;
+              entry.lastErrorAtReply = globalThis.chrome.runtime.lastError?.message;
+              entry.visibilityAtReply = document.visibilityState;
               return callback(...values);
             };
             return send(...forwarded);
@@ -476,6 +491,8 @@ try {
             entry.settled = true;
             entry.completedAt = Date.now();
             entry.error = error.message;
+            entry.runtimeIdAtReply = globalThis.chrome.runtime.id;
+            entry.visibilityAtReply = document.visibilityState;
             throw error;
           });
         };
@@ -1025,14 +1042,16 @@ try {
     const setProviderStatus = (status) => {
       providerStatus = status
     }
-    const harness = { check, page, context, origin, extensionId, cdp, extensionWorker, configure, prepareHost, until, nodeGesture, hasTranslation, originalDom, waitForLanguage, publicMessage, inContentWorld, observePublicMessages, waitForMessageResult, recordMessages, requests, heldMarkers, heldResponses, releaseHeld, providerResponses, translationMode, outputPath, installStorageBoundary, setContentStoragePlan, releaseContentStorage, setProviderStatus }
+    const harness = { check, page, context, origin, extensionId, cdp, extensionWorker, configure, prepareHost, until, nodeGesture, hasTranslation, originalDom, waitForLanguage, publicMessage, inContentWorld, observePublicMessages, waitForMessageResult, recordMessages, requests, heldMarkers, heldResponses, releaseHeld, providerResponses, translationMode, outputPath, installStorageBoundary, setContentStoragePlan, releaseContentStorage, setProviderStatus, reloadExtension, errors, contentWorld }
     await runContentBoundaryCases(harness)
     await runInputBoundaryCases(harness)
     await runStateBoundaryCases(harness)
     await runUIBoundaryCases(harness)
     await runSettingsBoundaryCases(harness)
-    if (selectedCase)
-      assert.ok(cases.some(item => item.name === selectedCase), `No applicable acceptance case: ${selectedCase}`)
+    if (nativeVisibility)
+      await runReloadBoundaryCases(harness)
+    for (const name of selectedCases)
+      assert.ok(cases.some(item => item.name === name), `No applicable acceptance case: ${name}`)
   }
 
   await check(baseline ? "baseline-errors-recorded-by-chrome" : "chrome-extension-error-list-empty", async () => {
@@ -1087,6 +1106,8 @@ finally {
     }
     await diagnostic("close disposable browser", () => context.close())
   }
+  if (closeNativeBrowser)
+    await diagnostic("close native visibility browser", closeNativeBrowser)
   await diagnostic("close local fixture", async () => {
     server.closeAllConnections()
     if (server.listening) {
@@ -1096,13 +1117,13 @@ finally {
   await Promise.all([...pendingDiagnostics])
   const quote = value => `'${value.replaceAll("'", "'\\''")}'`
   const report = {
-    result: failure ? "failed" : baseline ? "known-bugs-reproduced" : "passed", baseline, translationMode, extensionVersion: manifest?.version, extensionId, browserVersion, browserExecutable,
+    result: failure ? "failed" : baseline ? "known-bugs-reproduced" : "passed", baseline, translationMode, extensionVersion: manifest?.version, extensionId, browserVersion, browserExecutable, nativeVisibility,
     revision: sourceSnapshot?.revision, diffSha256: sourceSnapshot?.diffSha256,
     scriptSha256: sourceSnapshot?.scriptSha256, sourceSha256: sourceSnapshot?.sourceSha256, buildSha256: sourceSnapshot?.buildSha256,
     backgroundSha256: sourceSnapshot?.backgroundSha256, hostSha256: sourceSnapshot?.hostSha256,
     sourceStatus: sourceSnapshot?.sourceStatus, metadataCapturedAt: sourceSnapshot?.capturedAt,
-    command: `${browserExecutable ? `E2E_BROWSER_EXECUTABLE=${quote(browserExecutable)} ` : ""}pnpm e2e:extension ${quote(extensionPath)} ${quote(outputPath)}${baseline ? " --baseline" : ""}${translationMode === "translationOnly" ? " --translation-only" : ""}${selectedCase ? ` --case=${quote(selectedCase)}` : ""}`,
-    environment: "Real Chrome/Chromium with the production unpacked extension in a disposable persistent profile; real browser storage, messaging, worker termination/reload and DOM; Playwright focus emulation means native tab visibility is outside this suite",
+    command: `${nativeVisibility ? "E2E_NATIVE_VISIBILITY=1 " : ""}${browserExecutable ? `E2E_BROWSER_EXECUTABLE=${quote(browserExecutable)} ` : ""}pnpm e2e:extension ${quote(extensionPath)} ${quote(outputPath)}${baseline ? " --baseline" : ""}${translationMode === "translationOnly" ? " --translation-only" : ""}${selectedCase ? ` --case=${quote(selectedCase)}` : ""}`,
+    environment: `Real Chrome/Chromium with the production unpacked extension in a disposable persistent profile; real browser storage, messaging, worker termination/reload and DOM; keychain access disabled. ${nativeVisibility ? "Native visibility browser attached without focus overrides; explicit hidden/frozen reload scenarios" : "Playwright focus emulation means native tab visibility is outside this run"}`,
     dataPrerequisites: "Disposable extension config: English or automatic source, Chinese target, chosen translation mode, Control node gesture and Alt+E page shortcut, local fixture provider only",
     simulatedExternalDependency: "Local OpenAI-compatible HTTP provider with held/error/empty/echo responses; controlled Chrome message, storage reply and animation-frame timing (real APIs forwarded), plus one-shot storage/locale failures at extension-document bootstrap. Config refresh uses an explicitly dispatched visibilitychange entry; native tab activation is unverified. If the native action popup is unavailable to Playwright, the real popup document selects an actual Chrome fixture tab through a declared tabs-query boundary, recorded in settings-boundaries.json. No production credentials or paid API requests",
     cases, errors, browserExceptions, diagnosticFailures, requests, lifecycleEvents, messageRecords, failure: failure?.message,
