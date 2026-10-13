@@ -6,11 +6,19 @@ import { getContainingShadowRoot } from "../../dom/node"
 import { ensureCustomCSS, ensurePresetStyles } from "./style-injector"
 
 const customTranslationNodeAttribute = camelCase(CUSTOM_TRANSLATION_NODE_ATTRIBUTE)
+let contentTranslationNodeStyle: TranslationNodeStyleConfig | null = null
+
+export function setContentTranslationNodeStyle(style: TranslationNodeStyleConfig | null): void {
+  contentTranslationNodeStyle = style
+}
 
 export async function decorateTranslationNode(
   translatedNode: HTMLElement,
-  styleConfig: TranslationNodeStyleConfig,
+  requestedStyle: TranslationNodeStyleConfig,
 ): Promise<void> {
+  // Content scripts share a stylesheet: a late paragraph uses the current
+  // saved style. The settings preview uses its own supplied style in its realm.
+  const styleConfig = contentTranslationNodeStyle ?? requestedStyle
   if (translationNodeStylePresetSchema.safeParse(styleConfig.preset).error)
     return
 

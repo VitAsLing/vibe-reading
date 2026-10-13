@@ -23,6 +23,8 @@ export function CSSEditor() {
   const [translateConfig, setTranslateConfig] = useAtom(configFieldsAtomMap.translate)
   const { translationNodeStyle } = translateConfig
   const [cssInput, setCssInput] = useState(translateConfig.translationNodeStyle.customCSS ?? "")
+  const [acknowledgedCSS, setAcknowledgedCSS] = useState(cssInput)
+  const [isSaving, setIsSaving] = useState(false)
 
   // Debounce CSS input for validation
   const debouncedCssInput = useDebouncedValue(cssInput, 500)
@@ -41,22 +43,29 @@ export function CSSEditor() {
 
   const hasSyntaxError = !syntaxCheck.valid
   const isValidating = cssInput !== debouncedCssInput
-  const hasChanges = cssInput !== (translateConfig.translationNodeStyle.customCSS ?? "")
+  const hasChanges = isSaving || cssInput !== acknowledgedCSS || cssInput !== (translateConfig.translationNodeStyle.customCSS ?? "")
 
-  const handleSave = () => {
+  const handleSave = async () => {
     // Must pass syntax check and length check
-    if (hasSyntaxError || hasLengthError || isValidating || !hasChanges) {
+    if (hasSyntaxError || hasLengthError || isValidating || isSaving || !hasChanges) {
       return
     }
 
     // Save the original cssInput to preserve user's formatting and indentation
-    void setTranslateConfig({
-      ...translateConfig,
-      translationNodeStyle: {
-        ...translateConfig.translationNodeStyle,
-        customCSS: cssInput,
-      },
-    })
+    const submittedCSS = cssInput
+    setIsSaving(true)
+    try {
+      await setTranslateConfig({
+        translationNodeStyle: { ...translationNodeStyle, customCSS: submittedCSS },
+      })
+      setAcknowledgedCSS(submittedCSS)
+    }
+    catch {
+      // The configuration writer reports failure; retain the editable draft.
+    }
+    finally {
+      setIsSaving(false)
+    }
   }
 
   return (
@@ -108,7 +117,7 @@ export function CSSEditor() {
           <div className={cn("text-sm text-green-500", isValidating && "text-muted-foreground", (hasSyntaxError || hasLengthError) && "text-destructive")}>
             {cssInput.trim().length > 0 ? getValidationMessage(isValidating, hasSyntaxError, hasLengthError, hasChanges) : ""}
           </div>
-          <Button onClick={handleSave} disabled={isValidating || hasSyntaxError || hasLengthError || !hasChanges}>
+          <Button onClick={handleSave} disabled={isSaving || isValidating || hasSyntaxError || hasLengthError || !hasChanges}>
             {hasChanges
               ? i18n.t("options.translation.translationStyle.customCSS.editor.saveButton")
               : i18n.t("options.translation.translationStyle.customCSS.editor.savedButton")}

@@ -80,8 +80,10 @@ function ProviderHeadersFieldHarness({ initialConfig }: { initialConfig: APIProv
   const form = useAppForm({
     ...formOpts,
     defaultValues: providerConfig,
-    onSubmit: async ({ value }) => {
+    onSubmit: ({ value, meta }) => {
       setProviderConfig(value)
+      if (meta)
+        meta.persistence = Promise.resolve()
     },
   })
 
@@ -102,8 +104,10 @@ function ProviderHeadersFieldSwitchHarness() {
   const form = useAppForm({
     ...formOpts,
     defaultValues: providerConfig,
-    onSubmit: async ({ value }) => {
+    onSubmit: ({ value, meta }) => {
       setProviderConfig(value)
+      if (meta)
+        meta.persistence = Promise.resolve()
     },
   })
 

@@ -1,11 +1,12 @@
+import type { PersistenceReceipt } from "./form-context"
 import { useStore } from "@tanstack/react-form"
 import { Field, FieldError, FieldLabel } from "@/components/ui/base-ui/field"
 import { Input } from "@/components/ui/base-ui/input"
-import { useFieldContext } from "./form-context"
+import { submitWithPersistence, useFieldContext } from "./form-context"
 
 export function InputFieldAutoSave(
   { formForSubmit, label, labelExtra, type, ...props }:
-  { formForSubmit: { handleSubmit: () => void }, label: React.ReactNode, labelExtra?: React.ReactNode } & React.InputHTMLAttributes<HTMLInputElement>,
+  { formForSubmit: { handleSubmit: (meta?: PersistenceReceipt) => void | Promise<void> }, label: React.ReactNode, labelExtra?: React.ReactNode } & React.InputHTMLAttributes<HTMLInputElement>,
 ) {
   const field = useFieldContext<string | number | undefined>()
   const errors = useStore(field.store, state => state.meta.errors)
@@ -29,7 +30,8 @@ export function InputFieldAutoSave(
       field.handleChange(value)
     }
 
-    void formForSubmit.handleSubmit()
+    // The configuration writer already reports failed saves to the user.
+    void submitWithPersistence(formForSubmit).catch(() => {})
   }
 
   return (

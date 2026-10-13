@@ -19,9 +19,10 @@ vi.mock("@/utils/host/translate/api/ai", () => ({
   aiTranslate: vi.fn(),
 }))
 
-vi.mock("@/utils/prompts/translate", () => ({
-  getTranslatePrompt: vi.fn(),
-}))
+vi.mock("@/utils/prompts/translate", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/utils/prompts/translate")>()
+  return { ...actual, getTranslatePrompt: vi.fn() }
+})
 
 vi.mock("@/utils/host/translate/webpage-context", () => ({
   getOrCreateWebPageContext: vi.fn(),

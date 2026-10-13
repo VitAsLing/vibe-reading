@@ -1,6 +1,7 @@
 import type { APIProviderConfig } from "@/types/config/provider"
 import { useStore } from "@tanstack/react-form"
 import { useCallback } from "react"
+import { submitWithPersistence } from "@/components/form/form-context"
 import { HelpTooltip } from "@/components/help-tooltip"
 import { isLLMProviderConfig } from "@/types/config/provider"
 import { i18n } from "@/utils/i18n"
@@ -35,7 +36,7 @@ export const ProviderOptionsField = withForm({
       form.setFieldValue("providerOptions", value)
     }, [form])
 
-    const handleSubmit = useCallback(() => form.handleSubmit(), [form])
+    const handleSubmit = useCallback(() => submitWithPersistence(form), [form])
 
     if (!isLLMProvider) {
       return null

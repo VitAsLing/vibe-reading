@@ -2,6 +2,63 @@ import assert from "node:assert/strict"
 import { writeFile } from "node:fs/promises"
 import path from "node:path"
 
+export async function installConfigurationSaveReadFault(worker, installStorageBoundary, targetURL, label) {
+  await worker.evaluate(installStorageBoundary)
+  await worker.evaluate(({ url, marker }) => {
+    const state = globalThis.__E2E_NATIVE_STORAGE__
+    state.configurationSaveFaults ??= []
+    state.configurationSaveFaultListeners ??= new Map()
+    const fault = { label: marker, targetURL: url.split("#")[0], observed: false }
+    state.configurationSaveFaults.push(fault)
+    const listener = (message, sender) => {
+      if (message?.type !== "saveConfiguration" || sender.url?.split("#")[0] !== fault.targetURL)
+        return
+      globalThis.chrome.runtime.onMessage.removeListener(listener)
+      state.configurationSaveFaultListeners.delete(marker)
+      fault.observed = true
+      fault.messageId = message.id
+      fault.patchKeys = Object.keys(message.data.patch)
+      // The real save handler is already queued. Its fresh read runs after
+      // this native message event; unrelated reads cannot consume the fault.
+      state.plans.push({ area: "local", method: "get", key: "config", action: "reject", label: marker })
+    }
+    state.configurationSaveFaultListeners.set(marker, listener)
+    globalThis.chrome.runtime.onMessage.addListener(listener)
+  }, { url: targetURL, marker: label })
+}
+
+export async function waitForConfigurationSaveReadFault(worker, until, label) {
+  await until(() => worker.evaluate(value =>
+    globalThis.__E2E_NATIVE_STORAGE__.calls.some(call => call.label === value && call.settled), label),
+  "the real background configuration save read returned the injected failure")
+  const actual = await worker.evaluate((value) => {
+    const state = globalThis.__E2E_NATIVE_STORAGE__
+    return {
+      message: state.configurationSaveFaults.find(fault => fault.label === value),
+      calls: state.calls.filter(call => call.label === value),
+      pendingPlans: state.plans.filter(plan => plan.label === value).length,
+    }
+  }, label)
+  assert.equal(actual.message?.observed, true, "the fault must follow the actual settings document's public save message")
+  assert.deepEqual(actual.calls, [{ area: "local", method: "get", keys: ["config"], label, forwarded: true, settled: true }],
+    "exactly one real background configuration read must consume this save fault")
+  assert.equal(actual.pendingPlans, 0, "the one-shot save fault must be gone before recovery")
+  return actual
+}
+
+export async function removeConfigurationSaveReadFault(worker, label) {
+  await worker.evaluate((value) => {
+    const state = globalThis.__E2E_NATIVE_STORAGE__
+    const listener = state?.configurationSaveFaultListeners?.get(value)
+    if (listener) {
+      globalThis.chrome.runtime.onMessage.removeListener(listener)
+      state.configurationSaveFaultListeners.delete(value)
+    }
+    if (state)
+      state.plans = state.plans.filter(plan => plan.label !== value)
+  }, label)
+}
+
 function observeSettingsMessages() {
   if (!globalThis.chrome?.runtime?.id || globalThis.__E2E_SETTINGS_MESSAGES__)
     return
@@ -72,7 +129,12 @@ export async function runSettingsBoundaryCases(h) {
       messages: globalThis.__E2E_SETTINGS_MESSAGES__?.calls,
       tabSelection: globalThis.__E2E_POPUP_TAB_SELECTION__?.calls,
     }))
-    evidence.push({ name, ...extra, metadata })
+    const worker = await extensionWorker()
+    const backgroundSaveFaults = await worker.evaluate(() => {
+      const state = globalThis.__E2E_NATIVE_STORAGE__
+      return state && { messages: state.configurationSaveFaults, calls: state.calls.filter(call => call.label), plans: state.plans }
+    })
+    evidence.push({ name, ...extra, metadata, backgroundSaveFaults })
     await writeFile(path.join(outputPath, "settings-boundaries.json"), JSON.stringify(evidence, null, 2))
     await ui.screenshot({ path: path.join(outputPath, `${name}.png`) })
   }
@@ -97,15 +159,16 @@ export async function runSettingsBoundaryCases(h) {
   }
 
   async function saveReadFault(ui, label) {
-    await ui.evaluate(value => globalThis.__E2E_NATIVE_STORAGE__.plans.push({
-      area: "local", method: "get", key: "config", action: "reject", label: value,
-    }), label)
+    const worker = await extensionWorker()
+    await installConfigurationSaveReadFault(worker, installStorageBoundary, ui.url(), label)
+    return worker
   }
 
-  async function waitForFault(ui, label) {
-    await until(async () => await ui.evaluate(value =>
-      globalThis.__E2E_NATIVE_STORAGE__.calls.some(call => call.label === value && call.settled), label),
-    "real native settings read returned the injected failure")
+  async function waitForFault(ui, worker, label) {
+    await waitForConfigurationSaveReadFault(worker, until, label)
+    await until(() => ui.evaluate(() => globalThis.__E2E_SETTINGS_MESSAGES__.calls.some(call =>
+      call.type === "saveConfiguration" && call.settled && call.error === "E2E storage boundary unavailable")),
+    "the actual public configuration save returned its original background read error")
     await ui.evaluate(() => new Promise(resolve =>
       requestAnimationFrame(() => requestAnimationFrame(resolve))))
   }
@@ -122,9 +185,9 @@ export async function runSettingsBoundaryCases(h) {
       await ui.getByRole("button", { name: "Add Provider", exact: true }).click()
       const dialog = ui.getByRole("dialog")
       await until(() => dialog.isVisible(), "real add-provider dialog opened")
-      await saveReadFault(ui, "add-provider-save-read")
+      const faultWorker = await saveReadFault(ui, "add-provider-save-read")
       await dialog.getByRole("button", { name: "DeepSeek", exact: true }).click()
-      await waitForFault(ui, "add-provider-save-read")
+      await waitForFault(ui, faultWorker, "add-provider-save-read")
       assert.equal(await dialog.isVisible(), true, "a failed provider save must leave the dialog open")
       assert.equal(await ui.locator("#api-providers").getByRole("switch").locator("..").getByText("DeepSeek", { exact: true }).count(), 0,
         "a failed save must not leave a phantom provider in the editor list")
@@ -143,6 +206,7 @@ export async function runSettingsBoundaryCases(h) {
         "the successfully saved provider must appear once in the real list")
     }
     finally {
+      await removeConfigurationSaveReadFault(worker, "add-provider-save-read")
       await record(name, ui)
       await ui.close()
       await configure({ providersConfig: previous })
@@ -163,9 +227,9 @@ export async function runSettingsBoundaryCases(h) {
       const value = previous[kind.property] + 1
       const ui = await openOptions("/translation", `#${kind.id}`)
       try {
-        await saveReadFault(ui, name)
+        const faultWorker = await saveReadFault(ui, name)
         await ui.locator(`#${kind.id}`).fill(String(value))
-        await waitForFault(ui, name)
+        await waitForFault(ui, faultWorker, name)
         assert.deepEqual(await worker.evaluate(async section =>
           (await globalThis.chrome.storage.local.get("config")).config.translate[section], kind.section), previous,
         "a failed settings save must retain the actual stored queue configuration")
@@ -187,6 +251,7 @@ export async function runSettingsBoundaryCases(h) {
           "successful persisted queue setting is displayed")
       }
       finally {
+        await removeConfigurationSaveReadFault(worker, name)
         await record(name, ui)
         await ui.close()
         await configure({ translate: { [kind.section]: previous } })

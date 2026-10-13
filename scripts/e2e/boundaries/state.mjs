@@ -269,10 +269,7 @@ export async function runStateBoundaryCases(h) {
       await page.goto(`${nextOrigin}/audit-navigation-current`)
       await waitForHold(worker, label)
       await until(async () => await page.locator("[data-vibe-reading-host-toast]").count() === 1, "new-origin host bootstrapped")
-      if (await publicMessage("getEnablePageTranslationFromContentScript")) {
-        await page.keyboard.press("Alt+KeyE")
-        await until(async () => await publicMessage("getEnablePageTranslationFromContentScript") === false, "new-origin reader stops the inherited session")
-      }
+      assert.equal(await publicMessage("getEnablePageTranslationFromContentScript"), false, "a different origin must not inherit the old page's enabled state")
       await page.keyboard.press("Alt+KeyE")
       await until(async () => await worker.evaluate(async ({ stateKey, scope }) => {
         const state = (await globalThis.chrome.storage.session.get(stateKey))[stateKey]

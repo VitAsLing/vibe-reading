@@ -93,7 +93,10 @@ export async function getTranslatedTextAndRemoveSpinner(
   try {
     if (!operation.isCurrent())
       return undefined
-    translatedText = await translateTextForPage(textContent)
+    translatedText = await translateTextForPage(textContent, () => {
+      if (!operation.isCurrent())
+        throw new DOMException("Translation operation cancelled", "AbortError")
+    })
     if (!operation.isCurrent()) {
       removeShadowHostInTranslatedWrapper(translatedWrapperNode)
       translatedWrapperNode.remove()

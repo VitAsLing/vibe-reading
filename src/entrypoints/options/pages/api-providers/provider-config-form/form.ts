@@ -1,3 +1,4 @@
+import type { PersistenceReceipt } from "@/components/form/form-context"
 import { createFormHook, formOptions } from "@tanstack/react-form"
 import { fieldContext, formContext } from "@/components/form/form-context"
 import { InputFieldAutoSave } from "@/components/form/input-field-auto-save"
@@ -15,6 +16,7 @@ export const { useAppForm, withForm } = createFormHook({
 })
 
 export const formOpts = formOptions({
+  onSubmitMeta: undefined as PersistenceReceipt | undefined,
   validators: {
     onChange: apiProviderConfigItemSchema,
   },

@@ -1,12 +1,13 @@
 import type * as React from "react"
+import type { PersistenceReceipt } from "./form-context"
 import { useStore } from "@tanstack/react-form"
 import { useCallback } from "react"
 import { Field, FieldError, FieldLabel } from "@/components/ui/base-ui/field"
 import { Select } from "@/components/ui/base-ui/select"
-import { useFieldContext } from "./form-context"
+import { submitWithPersistence, useFieldContext } from "./form-context"
 
 type SelectFieldAutoSaveProps = React.ComponentProps<typeof Select> & {
-  formForSubmit: { handleSubmit: () => void }
+  formForSubmit: { handleSubmit: (meta?: PersistenceReceipt) => void | Promise<void> }
   label: React.ReactNode
   labelExtra?: React.ReactNode
 }
@@ -22,7 +23,7 @@ export function SelectFieldAutoSave(
     if (typeof value !== "string")
       return
     field.handleChange(value)
-    void formForSubmit.handleSubmit()
+    void submitWithPersistence(formForSubmit).catch(() => {})
   }, [field, formForSubmit])
 
   return (

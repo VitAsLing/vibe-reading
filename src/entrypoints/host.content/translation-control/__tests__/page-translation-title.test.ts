@@ -168,13 +168,13 @@ describe("pageTranslationManager title handling", () => {
 
     expect(document.title).toBe("Translated Title")
     expect(mockTranslateTextForPageTitle).toHaveBeenCalledTimes(1)
-    expect(mockTranslateTextForPageTitle).toHaveBeenCalledWith("Original Title")
+    expect(mockTranslateTextForPageTitle).toHaveBeenCalledWith("Original Title", expect.any(Function))
 
     document.title = "Updated Source Title"
     await flushDomUpdates()
 
     expect(mockTranslateTextForPageTitle).toHaveBeenCalledTimes(2)
-    expect(mockTranslateTextForPageTitle).toHaveBeenLastCalledWith("Updated Source Title")
+    expect(mockTranslateTextForPageTitle).toHaveBeenLastCalledWith("Updated Source Title", expect.any(Function))
     expect(document.title).toBe("Translated Updated Title")
 
     manager.stop()

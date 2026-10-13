@@ -3,6 +3,7 @@ import { browser, defineBackground } from "#imports"
 import { logger } from "@/utils/logger"
 import { onMessage } from "@/utils/message"
 import { openOptionsPage } from "@/utils/navigation"
+import { setupConfigurationMessages } from "./config"
 import { cleanupAllSummaryCache, cleanupAllTranslationCache, setUpDatabaseCleanup } from "./db-cleanup"
 import { setupIframeInjection } from "./iframe-injection"
 import { setupLLMGenerateTextMessageHandlers } from "./llm-generate-text"
@@ -14,6 +15,7 @@ export default defineBackground({
   type: "module",
   main: () => {
     logger.info("Hello background!", { id: browser.runtime.id })
+    setupConfigurationMessages()
 
     onMessage("openOptionsPage", async (message) => {
       logger.info("openOptionsPage", message.data)

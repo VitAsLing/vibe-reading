@@ -381,12 +381,15 @@ export class PageTranslationManager {
     }
 
     const requestVersion = ++this.titleRequestVersion
+    const sessionVersion = this.sessionVersion
+    const checkpoint = () => {
+      if (!this.isCurrentSession(sessionVersion) || !this.isPageTranslating || requestVersion !== this.titleRequestVersion)
+        throw new DOMException("Title translation cancelled", "AbortError")
+    }
 
     try {
-      const translatedTitle = await translateTextForPageTitle(sourceTitle)
-      if (!isContentScriptActive() || !this.isPageTranslating || requestVersion !== this.titleRequestVersion) {
-        return
-      }
+      const translatedTitle = await translateTextForPageTitle(sourceTitle, checkpoint)
+      checkpoint()
 
       const nextTitle = translatedTitle || sourceTitle
       this.lastAppliedTranslatedTitle = nextTitle
@@ -398,7 +401,7 @@ export class PageTranslationManager {
       document.title = nextTitle
     }
     catch (error) {
-      if (requestVersion === this.titleRequestVersion) {
+      if (this.isCurrentSession(sessionVersion) && this.isPageTranslating && requestVersion === this.titleRequestVersion) {
         reportContentScriptError("Failed to translate document title:", error)
       }
     }

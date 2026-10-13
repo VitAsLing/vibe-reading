@@ -11,6 +11,7 @@ const {
   mockBindTranslationShortcutKey,
   mockDetectPageLanguageLightweight,
   mockEnsurePresetStyles,
+  mockGetLocalConfig,
   mockMountHostToast,
   mockOnMessage,
   mockRegisterNodeTranslationTriggers,
@@ -29,6 +30,7 @@ const {
   mockBindTranslationShortcutKey: vi.fn(),
   mockDetectPageLanguageLightweight: vi.fn(),
   mockEnsurePresetStyles: vi.fn(),
+  mockGetLocalConfig: vi.fn(),
   mockMountHostToast: vi.fn(),
   mockOnMessage: vi.fn(),
   mockRegisterNodeTranslationTriggers: vi.fn(),
@@ -38,6 +40,14 @@ const {
 
 vi.mock("@/utils/content/page-language", () => ({
   detectPageLanguageLightweight: mockDetectPageLanguageLightweight,
+}))
+
+vi.mock("@/utils/config/storage", () => ({
+  getLocalConfig: mockGetLocalConfig,
+}))
+
+vi.mock("@/utils/host/translate/ui/decorate-translation", () => ({
+  setContentTranslationNodeStyle: vi.fn(),
 }))
 
 vi.mock("@/utils/host/translate/ui/style-injector", () => ({
@@ -141,6 +151,7 @@ describe("bootstrapHostContent URL changes", () => {
     mockMountHostToast.mockReturnValue(vi.fn())
     mockRegisterNodeTranslationTriggers.mockReturnValue(vi.fn())
     mockBindTranslationShortcutKey.mockResolvedValue(vi.fn())
+    mockGetLocalConfig.mockResolvedValue(null)
     mockOnMessage.mockImplementation((name: string, handler: (msg?: any) => any) => {
       messageHandlers.set(name, handler)
       return vi.fn()

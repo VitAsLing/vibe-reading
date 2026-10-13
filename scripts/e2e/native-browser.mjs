@@ -72,7 +72,7 @@ export async function launchNativeVisibilityBrowser({ executablePath, extensionP
     if (!endpoint)
       throw new Error("Native acceptance browser did not publish its CDP endpoint")
     const browser = await chromium.connectOverCDP(endpoint, { noDefaults: true, isLocal: true })
-    return { context: browser.contexts()[0], close }
+    return { context: browser.contexts()[0], close, endpoint }
   }
   catch (error) {
     await close()

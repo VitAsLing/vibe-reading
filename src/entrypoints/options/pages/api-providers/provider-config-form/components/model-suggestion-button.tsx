@@ -1,6 +1,7 @@
 import { Combobox as ComboboxPrimitive } from "@base-ui/react"
 import { Icon } from "@iconify/react"
 import { useMutation } from "@tanstack/react-query"
+import { z } from "zod"
 import LoadingDots from "@/components/loading-dots"
 import { Button } from "@/components/ui/base-ui/button"
 import {
@@ -12,12 +13,10 @@ import {
   ComboboxList,
 } from "@/components/ui/base-ui/combobox"
 import { extractErrorMessage } from "@/utils/error/extract-message"
+import { Sha256Hex } from "@/utils/hash"
 import { i18n } from "@/utils/i18n"
 
-interface ModelsResponse {
-  object: string
-  data: Array<{ id: string, object: string, created: number, owned_by: string }>
-}
+const modelsResponseSchema = z.object({ data: z.array(z.object({ id: z.string().min(1) })) })
 
 interface ModelSuggestionButtonProps {
   baseURL: string
@@ -33,7 +32,7 @@ export function ModelSuggestionButton({
   disabled,
 }: ModelSuggestionButtonProps) {
   const mutation = useMutation({
-    mutationKey: ["fetchModels", baseURL],
+    mutationKey: ["fetchModels", baseURL, Sha256Hex(apiKey ?? "")],
     meta: {
       errorDescription: i18n.t("options.apiProviders.form.models.fetchError"),
     },
@@ -49,7 +48,7 @@ export function ModelSuggestionButton({
         throw new Error(await extractErrorMessage(response))
       }
 
-      const data: ModelsResponse = await response.json()
+      const data = modelsResponseSchema.parse(await response.json())
       return data.data.map(m => m.id)
     },
   })
