@@ -6,6 +6,7 @@ import { Checkbox } from "@/components/ui/base-ui/checkbox"
 import { SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/base-ui/select"
 import { isCustomLLMProviderConfig, isLLMProviderConfig, LLM_PROVIDER_MODELS } from "@/types/config/provider"
 import { providerConfigAtom, updateLLMProviderConfig } from "@/utils/atoms/provider"
+import { RETIRED_PROVIDER_MODELS } from "@/utils/constants/models"
 import { i18n } from "@/utils/i18n"
 import { resolveModelId } from "@/utils/providers/model-id"
 import { ModelSuggestionButton } from "./components/model-suggestion-button"
@@ -22,6 +23,10 @@ export const TranslateModelSelector = withForm({
 
     const modelId = resolveModelId(providerConfig.model)
     const { isCustomModel, customModel, model } = providerConfig.model
+    const listedModel = (LLM_PROVIDER_MODELS[providerConfig.provider] as readonly string[]).includes(model)
+    const retiredModel = providerConfig.provider === "openai-compatible"
+      ? undefined
+      : (RETIRED_PROVIDER_MODELS[providerConfig.provider] as Record<string, { shutdownDate: string, replacement: string }>)[modelId ?? ""]
 
     const applyRecommendedProviderOptions = (options: Record<string, unknown>) => {
       form.setFieldValue("providerOptions", options)
@@ -79,6 +84,11 @@ export const TranslateModelSelector = withForm({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
+                        {!listedModel && (
+                          <SelectItem value={model} disabled>
+                            {retiredModel ? i18n.t("options.apiProviders.form.models.retiredLabel", [model]) : model}
+                          </SelectItem>
+                        )}
                         {LLM_PROVIDER_MODELS[providerConfig.provider].map(model => (
                           <SelectItem key={model} value={model}>
                             {model}
@@ -90,6 +100,11 @@ export const TranslateModelSelector = withForm({
                 )}
               </form.AppField>
             )}
+        {retiredModel && (
+          <p role="alert" className="mt-2 text-sm text-amber-600 dark:text-amber-400">
+            {i18n.t("options.apiProviders.form.models.retiredWarning", [modelId ?? model, retiredModel.shutdownDate])}
+          </p>
+        )}
         {providerConfig.provider !== "openai-compatible" && (
           <form.Field name="model.isCustomModel">
             {field => (

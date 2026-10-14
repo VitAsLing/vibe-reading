@@ -7,57 +7,40 @@ import { isAPIProviderConfig } from "@/types/config/provider"
 import { CONFIG_SCHEMA_VERSION, CONFIG_STORAGE_KEY, DEFAULT_CONFIG } from "../constants/config"
 import { logger } from "../logger"
 
-const DEPRECATED_DEEPSEEK_MODELS = {
-  "deepseek-chat": "disabled",
-  "deepseek-reasoner": "enabled",
-} as const
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function migrateDeprecatedDeepSeekModels(config: unknown): { config: unknown, changed: boolean } {
+function normalizeDeepSeekFlashAliases(config: unknown): { config: unknown, changed: boolean } {
   if (!isRecord(config) || !Array.isArray(config.providersConfig)) {
     return { config, changed: false }
   }
 
   let changed = false
   const providersConfig = config.providersConfig.map((providerConfig) => {
-    if (!isRecord(providerConfig) || providerConfig.provider !== "deepseek" || !isRecord(providerConfig.model)) {
+    if (!isRecord(providerConfig) || providerConfig.provider !== "deepseek" || !isRecord(providerConfig.model)
+      || providerConfig.model.isCustomModel !== false) {
       return providerConfig
     }
 
     const legacyModel = providerConfig.model.model
-    if (legacyModel !== "deepseek-chat" && legacyModel !== "deepseek-reasoner") {
+    if (typeof providerConfig.baseURL === "string" && providerConfig.baseURL.trim()
+      && !/^https:\/\/api\.deepseek\.com(?::443)?(?:\/|$)/i.test(providerConfig.baseURL.trim())) {
+      return providerConfig
+    }
+    // These aliases already route to V4.1 Flash at the provider. Retired chat/
+    // reasoner selections stay unchanged and require an explicit new selection.
+    if (legacyModel !== "deepseek-v4-flash" && legacyModel !== "deepseek-v4-flash-vision-exp") {
       return providerConfig
     }
 
     changed = true
-    let providerOptions = providerConfig.providerOptions
-
-    if (providerConfig.model.isCustomModel === false && (providerOptions === undefined || isRecord(providerOptions))) {
-      const thinking = isRecord(providerOptions) && isRecord(providerOptions.thinking)
-        ? providerOptions.thinking
-        : undefined
-
-      if (!thinking || !("type" in thinking)) {
-        providerOptions = {
-          ...(isRecord(providerOptions) ? providerOptions : {}),
-          thinking: {
-            ...thinking,
-            type: DEPRECATED_DEEPSEEK_MODELS[legacyModel],
-          },
-        }
-      }
-    }
-
     return {
       ...providerConfig,
       model: {
         ...providerConfig.model,
-        model: "deepseek-v4-flash",
+        model: "deepseek-flash",
       },
-      ...(providerOptions !== providerConfig.providerOptions && { providerOptions }),
     }
   })
 
@@ -92,7 +75,7 @@ export async function initializeConfig() {
     didConfigChange = true
   }
   else {
-    const migration = migrateDeprecatedDeepSeekModels(storedConfig)
+    const migration = normalizeDeepSeekFlashAliases(storedConfig)
     configCandidate = migration.config
     didConfigChange = migration.changed
   }

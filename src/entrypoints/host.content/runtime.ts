@@ -36,7 +36,7 @@ export async function bootstrapHostContent(ctx: ContentScriptContext, initialCon
         cleanup()
       }
       catch (error) {
-        reportContentScriptError("Failed to clean up host content:", error)
+        void reportContentScriptError("Failed to clean up host content:", error)
       }
     }
   }
@@ -109,7 +109,7 @@ export async function bootstrapHostContent(ctx: ContentScriptContext, initialCon
       translationEnabled = await sendMessage("getEnablePageTranslationFromContentScript", undefined)
     }
     catch (error) {
-      reportContentScriptError("Failed to check translation state:", error)
+      void reportContentScriptError("Failed to check translation state:", error)
     }
     if (!isContentScriptActive())
       return

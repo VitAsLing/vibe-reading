@@ -62,7 +62,8 @@ export function getRecommendedProviderOptions(model: string): Record<string, JSO
 
 /**
  * Get provider options for AI SDK calls.
- * - If the user has saved provider options (including `{}`), use them as-is.
+ * - Saved options (including `{}`) replace recommendations. GPT-6 additionally
+ *   needs the installed SDK's reasoning-model compatibility flag for Responses.
  * - Otherwise fall back to the recommended defaults for the current model.
  */
 export function getProviderOptionsWithOverride(
@@ -71,7 +72,10 @@ export function getProviderOptionsWithOverride(
   userOptions?: Record<string, JSONValue>,
 ): Record<string, Record<string, JSONValue>> | undefined {
   if (userOptions !== undefined) {
-    return { [provider]: normalizeUserProviderOptions(provider, userOptions) }
+    const options = normalizeUserProviderOptions(provider, userOptions)
+    const needsReasoningCompatibility = provider === "openai"
+      && ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"].includes(model)
+    return { [provider]: needsReasoningCompatibility ? { ...options, forceReasoning: true } : options }
   }
 
   const recommendedOptions = getRecommendedProviderOptions(model)

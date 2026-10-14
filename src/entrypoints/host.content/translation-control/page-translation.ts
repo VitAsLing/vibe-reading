@@ -406,7 +406,7 @@ export class PageTranslationManager {
     }
     catch (error) {
       if (this.isCurrentSession(sessionVersion) && this.isPageTranslating && requestVersion === this.titleRequestVersion) {
-        reportContentScriptError("Failed to translate document title:", error)
+        void reportContentScriptError("Failed to translate document title:", error)
       }
     }
   }

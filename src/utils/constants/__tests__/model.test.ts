@@ -17,24 +17,41 @@ describe("provider option defaults", () => {
     expect(getProviderOptionsWithOverride("O4-Mini", "openai")?.openai?.reasoningEffort).toBe("minimal")
   })
 
-  it("exposes the supported OpenAI GPT-5.4 model ids", () => {
+  it("exposes current OpenAI API models and omits retired recommendations", () => {
     expect(LLM_PROVIDER_MODELS.openai).toEqual(expect.arrayContaining([
+      "gpt-6-astra",
+      "gpt-6.1-sol",
+      "gpt-6-sol",
+      "gpt-6-luna",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.5-pro",
+      "gpt-5.5",
       "gpt-5.4-pro",
       "gpt-5.4",
       "gpt-5.4-mini",
       "gpt-5.4-nano",
-      "gpt-5.3-chat-latest",
     ]))
+    expect(LLM_PROVIDER_MODELS.openai).not.toEqual(expect.arrayContaining(["gpt-5.3-chat-latest"]))
+    expect(LLM_PROVIDER_MODELS.openai).not.toEqual(expect.arrayContaining(["gpt-5.1-codex"]))
   })
 
-  it("exposes only the supported DeepSeek V4 model ids", () => {
+  it("exposes only the current DeepSeek API model ids", () => {
     expect(LLM_PROVIDER_MODELS.deepseek).toEqual([
-      "deepseek-v4-flash",
+      "deepseek-flash",
       "deepseek-v4-pro",
     ])
   })
 
   it("returns documented GPT-5 reasoning defaults", () => {
+    expect(getProviderOptionsWithOverride("gpt-6-astra", "openai")?.openai).toEqual({ forceReasoning: true, reasoningEffort: "low" })
+    expect(getProviderOptionsWithOverride("gpt-6.1-sol", "openai")?.openai).toEqual({ forceReasoning: true, reasoningEffort: "low" })
+    expect(getProviderOptionsWithOverride("gpt-6-sol", "openai")?.openai).toEqual({ forceReasoning: true, reasoningEffort: "none" })
+    expect(getProviderOptionsWithOverride("gpt-6-luna", "openai")?.openai).toEqual({ forceReasoning: true, reasoningEffort: "none" })
+    expect(getProviderOptionsWithOverride("gpt-5.6-sol", "openai")?.openai?.reasoningEffort).toBe("none")
+    expect(getProviderOptionsWithOverride("gpt-5.5-pro", "openai")?.openai?.reasoningEffort).toBe("medium")
+    expect(getProviderOptionsWithOverride("gpt-5.5", "openai")?.openai?.reasoningEffort).toBe("none")
     expect(getProviderOptionsWithOverride("gpt-5.4-pro", "openai")?.openai?.reasoningEffort).toBe("medium")
     expect(getProviderOptionsWithOverride("GPT-5.4-Pro", "openai")?.openai?.reasoningEffort).toBe("medium")
     expect(getProviderOptionsWithOverride("gpt-5.2-pro", "openai")?.openai?.reasoningEffort).toBe("medium")
@@ -53,6 +70,7 @@ describe("provider option defaults", () => {
   })
 
   it("returns DeepSeek thinking defaults", () => {
+    expect(getProviderOptionsWithOverride("deepseek-flash", "deepseek")?.deepseek?.thinking).toEqual({ type: "disabled" })
     expect(getProviderOptionsWithOverride("deepseek-v4-flash", "deepseek")?.deepseek?.thinking).toEqual({ type: "disabled" })
     expect(getProviderOptionsWithOverride("DeepSeek-V4-Flash", "deepseek")?.deepseek?.thinking).toEqual({ type: "disabled" })
     expect(getProviderOptionsWithOverride("deepseek-v4-pro", "deepseek")?.deepseek?.thinking).toEqual({ type: "disabled" })
@@ -72,6 +90,10 @@ describe("provider option defaults", () => {
 
   it("uses user options as-is without merging matched defaults", () => {
     expect(getProviderOptionsWithOverride("gpt-5-mini", "openai", { foo: "bar" })).toEqual({ openai: { foo: "bar" } })
+    expect(getProviderOptionsWithOverride("gpt-6-astra", "openai", { reasoningEffort: "high", foo: "bar" })).toEqual({
+      openai: { reasoningEffort: "high", foo: "bar", forceReasoning: true },
+    })
+    expect(getProviderOptionsWithOverride("gpt-6-luna", "openai", {})).toEqual({ openai: { forceReasoning: true } })
   })
 
   it("normalizes common OpenAI-compatible snake_case aliases", () => {

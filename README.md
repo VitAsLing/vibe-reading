@@ -58,6 +58,23 @@ The result is deliberately simple: **Vibe Reading is for reading.**
 
 ## Development
 
+### API model catalog
+
+The built-in text-generation model choices were checked on **2026-10-15** against
+the [OpenAI catalog](https://developers.openai.com/api/docs/models),
+[OpenAI shutdown notices](https://developers.openai.com/api/docs/deprecations), and
+[DeepSeek's current models](https://api-docs.deepseek.com/quick_start/pricing/).
+Newer generations appear first. DeepSeek offers `deepseek-flash` (V4.1 Flash) and
+`deepseek-v4-pro`; its official Flash aliases are normalized to `deepseek-flash`.
+Custom model names and third-party endpoints are preserved.
+
+Shut-down models are removed from new selections. Existing selections remain
+visible with a warning so updating the catalog cannot discard API keys or other
+settings. Requests to a retired model at the official endpoint are rejected
+until the reader selects a supported model. Models with future shutdown dates
+remain available. Catalog presence does not establish access for a particular
+API account.
+
 ```bash
 pnpm install
 pnpm lint
@@ -71,6 +88,13 @@ single PR validation entrypoint: it runs lint, types, existing unit tests, brows
 packaging and loaded-extension E2E on Node 24.
 
 The extension lifecycle E2E loads the production build into a disposable Chromium profile and exercises bilingual and translation-only modes. It covers background wakeup, individual retries in mixed inline/block content, reload with mounted error controls, dynamic content and SPA navigation, in-flight and silent extension reloads, page reload recovery, delayed success/failure after stop or element reuse, request ownership across sessions, cancellation before wrapper insertion, and out-of-order page language detection. It also covers same-URL source changes and detached error controls, independent keyboard/mouse presses with delayed configuration, iframe state rejection, late storage acknowledgements, settings startup failures and recovery, failed saves, theme/configuration freshness, and live shortcut updates. Model responses use a local HTTP fixture. Timing and failure injection occurs at Chrome storage/message, HTTP, locale-fetch, and animation-frame boundaries; internal extension functions are not mocked. No regular browser profile or production API key is read.
+
+Locale scenarios exercise selected English/Chinese resources in opaque and
+resource-restricted child frames, child reload, translation and stop, and a real
+worker reload during pending locale delivery. Model scenarios use the actual
+settings page to inspect retired selections, migrate equivalent Flash aliases,
+save current models, reload settings, and translate through the installed SDK's
+Responses or Chat Completions protocol against the local fixture.
 
 ```bash
 pnpm build

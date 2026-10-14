@@ -53,7 +53,7 @@ options:
     page: cài đặt
   apiProviders:
     title: Nhà cung cấp API
-    description: Cấu hình các nhà cung cấp API cho chức năng dịch và phân tích từ vựng tại đây. Chúng tôi có hơn 20 nhà cung cấp tích hợp sẵn và hỗ trợ mọi API tương thích OpenAI.
+    description: Cấu hình nhà cung cấp API để dịch trang. Hỗ trợ OpenAI, DeepSeek và mọi API tương thích OpenAI.
     addProvider: Thêm nhà cung cấp
     badges:
       featureCount: $1 tính năng
@@ -88,6 +88,8 @@ options:
       defaultProvider:
         translate: Đặt làm nhà cung cấp dịch mặc định
       models:
+        retiredLabel: $1 (đã ngừng)
+        retiredWarning: API chính thức đã ngừng cung cấp $1 vào $2. Hãy chọn mô hình còn được hỗ trợ. Các cài đặt đã lưu được giữ nguyên.
         translate:
           title: Mô hình dịch
           customTitle: Mô hình dịch tùy chỉnh

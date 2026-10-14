@@ -107,7 +107,7 @@ export async function getTranslatedTextAndRemoveSpinner(
     if (!operation.isCurrent())
       return undefined
     if (isContentScriptInvalidationError(error) || !isContentScriptActive()) {
-      reportContentScriptError("Translation failed after content script invalidation:", error)
+      void reportContentScriptError("Translation failed after content script invalidation:", error)
       removeShadowHostInTranslatedWrapper(translatedWrapperNode)
       translatedWrapperNode.remove()
       return undefined

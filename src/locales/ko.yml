@@ -53,7 +53,7 @@ options:
     page: 페이지에서
   apiProviders:
     title: API 제공업체
-    description: 번역 및 어휘 분석 기능을 위한 API 제공업체를 구성합니다. 20개 이상의 내장 제공업체와 모든 OpenAI 호환 API를 지원합니다.
+    description: 페이지 번역용 API 제공업체를 설정합니다. OpenAI, DeepSeek 및 OpenAI 호환 API를 지원합니다.
     addProvider: 제공업체 추가
     badges:
       featureCount: $1 개 기능
@@ -88,6 +88,8 @@ options:
       defaultProvider:
         translate: 기본 번역 제공업체로 설정
       models:
+        retiredLabel: $1 (지원 종료)
+        retiredWarning: 공식 API에서 $2에 $1 지원을 종료했습니다. 지원되는 모델을 선택하세요. 저장된 설정은 유지됩니다.
         translate:
           title: 번역 모델
           customTitle: 사용자 정의 번역 모델

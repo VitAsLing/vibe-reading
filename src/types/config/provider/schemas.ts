@@ -8,7 +8,7 @@ import type {
 
 import { z } from "zod"
 
-import { LLM_PROVIDER_MODELS } from "./constants"
+import { LLM_PROVIDER_MODEL_IDS } from "@/utils/constants/models"
 
 /* ──────────────────────────────
   Providers config schema
@@ -16,7 +16,7 @@ import { LLM_PROVIDER_MODELS } from "./constants"
 
 // Helper function to create provider-specific model schema
 function createProviderModelSchema<T extends LLMProviderTypes>(provider: T) {
-  const models = LLM_PROVIDER_MODELS[provider]
+  const models = LLM_PROVIDER_MODEL_IDS[provider]
   return z.object({
     model: z.enum(models),
     isCustomModel: provider === "openai-compatible" ? z.literal(true) : z.boolean(),
@@ -131,10 +131,10 @@ function buildProviderModelsSchema<M extends Record<string, ModelTuple>>(models:
   )
 }
 
-const { "openai-compatible": _, ...modelsWithoutOpenaiCompatible } = LLM_PROVIDER_MODELS
+const { "openai-compatible": _, ...modelsWithoutOpenaiCompatible } = LLM_PROVIDER_MODEL_IDS
 export const llmProviderModelsSchema = buildProviderModelsSchema(modelsWithoutOpenaiCompatible).extend({
   "openai-compatible": z.object({
-    model: z.enum(LLM_PROVIDER_MODELS["openai-compatible"]),
+    model: z.enum(LLM_PROVIDER_MODEL_IDS["openai-compatible"]),
     isCustomModel: z.literal(true),
     customModel: z.string().nullable(),
   }),

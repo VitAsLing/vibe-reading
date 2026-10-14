@@ -53,7 +53,7 @@ options:
     page: página
   apiProviders:
     title: Proveedores de API
-    description: Configura proveedores de API para traducción e información de vocabulario. Tenemos más de 20 proveedores integrados y admitimos cualquier proveedor de API compatible con OpenAI.
+    description: Configura proveedores de API para traducir páginas. Compatible con OpenAI, DeepSeek y cualquier API compatible con OpenAI.
     addProvider: Añadir proveedor
     badges:
       featureCount: $1 funciones
@@ -89,6 +89,8 @@ options:
       defaultProvider:
         translate: Establecer como proveedor de traducción predeterminado
       models:
+        retiredLabel: $1 (retirado)
+        retiredWarning: La API oficial dejó de ofrecer $1 el $2. Selecciona un modelo compatible. Se han conservado tus ajustes.
         translate:
           title: Modelo de traducción
           customTitle: Modelo de traducción personalizado
