@@ -564,9 +564,6 @@ describe("batchQueue – error handling", () => {
     })
     const rateLimitedError = Object.assign(new Error("Too Many Requests"), {
       statusCode: 429,
-      responseHeaders: {
-        "retry-after": "2",
-      },
     })
 
     mockExecuteTranslate.mockImplementation((text: string) => {

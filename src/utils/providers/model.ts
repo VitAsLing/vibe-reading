@@ -7,7 +7,7 @@ import { storage } from "#imports"
 import { isCustomLLMProvider } from "@/types/config/provider"
 import { getLLMProvidersConfig, getProviderConfigById } from "../config/helpers"
 import { CONFIG_STORAGE_KEY } from "../constants/config"
-import { getProviderHeadersWithOverride } from "./headers"
+import { getProviderHeaders } from "./headers"
 import { resolveModelId } from "./model-id"
 
 const CREATE_AI_MAPPER = {
@@ -32,7 +32,7 @@ export async function getModelById(providerId: string) {
 }
 
 export function getModelFromProviderConfig(providerConfig: LLMProviderConfig) {
-  const headers = getProviderHeadersWithOverride(providerConfig.provider, providerConfig.headers)
+  const headers = getProviderHeaders(providerConfig.headers)
   const provider = isCustomLLMProvider(providerConfig.provider)
     ? CREATE_AI_MAPPER[providerConfig.provider]({
         name: providerConfig.provider,

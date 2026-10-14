@@ -5,7 +5,6 @@ const retryContext = {
   retryCount: 0,
   maxRetries: 2,
   baseRetryDelayMs: 100,
-  now: 0,
 }
 
 function errorWithStatus(statusCode: number) {

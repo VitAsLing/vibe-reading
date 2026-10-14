@@ -2,9 +2,7 @@ export type RequestErrorKind = "rate-limit" | "timeout" | "network" | "bad-reque
 
 export interface RequestErrorMeta {
   statusCode?: number
-  responseHeaders?: Headers | Record<string, string>
   isRetryable?: boolean
-  retryAfterMs?: number
   kind?: RequestErrorKind
 }
 
@@ -12,7 +10,6 @@ export interface RequestRetryContext {
   retryCount: number
   maxRetries: number
   baseRetryDelayMs: number
-  now: number
 }
 
 export type RetryDecision
@@ -25,7 +22,7 @@ export interface RequestRetryPolicy {
 
 export const REQUEST_ERROR_META = Symbol("requestErrorMeta")
 
-export const MAX_RETRY_AFTER_MS = 5 * 60_000
+export const MAX_RETRY_DELAY_MS = 5 * 60_000
 
 interface RetryAwareError {
   [REQUEST_ERROR_META]?: RequestErrorMeta
@@ -33,10 +30,7 @@ interface RetryAwareError {
   statusCode?: unknown
   status?: unknown
   response?: unknown
-  responseHeaders?: unknown
-  headers?: unknown
   isRetryable?: unknown
-  retryAfterMs?: unknown
   kind?: unknown
   message?: unknown
 }
@@ -68,15 +62,6 @@ export function getRequestErrorMeta(error: unknown): RequestErrorMeta {
     ?? response?.statusCode
     ?? response?.status,
   )
-  const responseHeaders = normalizeHeaders(
-    attachedMeta?.responseHeaders
-    ?? source?.responseHeaders
-    ?? source?.headers
-    ?? response?.responseHeaders
-    ?? response?.headers,
-  )
-  const retryAfterMs = normalizeNonNegativeNumber(attachedMeta?.retryAfterMs ?? source?.retryAfterMs)
-    ?? getRetryAfterMsFromHeaders(responseHeaders)
   const isRetryable = normalizeBoolean(attachedMeta?.isRetryable ?? source?.isRetryable)
   const message = typeof source?.message === "string" ? source.message : ""
   const kind = normalizeKind(attachedMeta?.kind ?? source?.kind)
@@ -84,39 +69,9 @@ export function getRequestErrorMeta(error: unknown): RequestErrorMeta {
 
   return removeUndefined({
     statusCode,
-    responseHeaders,
-    retryAfterMs,
     isRetryable,
     kind,
   })
-}
-
-export function getHeaderValue(headers: RequestErrorMeta["responseHeaders"] | unknown, key: string): string | undefined {
-  if (!headers) {
-    return undefined
-  }
-
-  if (typeof Headers !== "undefined" && headers instanceof Headers) {
-    return headers.get(key) ?? headers.get(key.toLowerCase()) ?? undefined
-  }
-
-  const normalizedKey = key.toLowerCase()
-
-  if (Array.isArray(headers)) {
-    const entry = headers.find((header): header is [unknown, unknown] => {
-      return Array.isArray(header) && header.length >= 2 && String(header[0]).toLowerCase() === normalizedKey
-    })
-    const value = entry?.[1]
-    return typeof value === "string" ? value : undefined
-  }
-
-  if (isObject(headers)) {
-    const entry = Object.entries(headers).find(([headerKey]) => headerKey.toLowerCase() === normalizedKey)
-    const value = entry?.[1]
-    return typeof value === "string" ? value : undefined
-  }
-
-  return undefined
 }
 
 export const defaultRequestRetryPolicy: RequestRetryPolicy = {
@@ -132,7 +87,7 @@ export const defaultRequestRetryPolicy: RequestRetryPolicy = {
     }
 
     const baseDelayMs = context.baseRetryDelayMs * (2 ** context.retryCount)
-    const delayMs = clampRetryDelay(withJitter(baseDelayMs, false))
+    const delayMs = clampRetryDelay(withJitter(baseDelayMs))
 
     return { action: "retry", delayMs }
   },
@@ -172,69 +127,6 @@ function isRetryableRequestErrorMeta(meta: RequestErrorMeta): boolean {
   }
 
   return true
-}
-
-function getRetryAfterMsFromHeaders(headers: RequestErrorMeta["responseHeaders"] | undefined, now = Date.now()): number | undefined {
-  const retryAfterMs = getHeaderValue(headers, "retry-after-ms")
-  if (retryAfterMs) {
-    const parsed = Number.parseFloat(retryAfterMs)
-    if (Number.isFinite(parsed) && parsed >= 0) {
-      return parsed
-    }
-  }
-
-  const retryAfter = getHeaderValue(headers, "retry-after")
-  if (!retryAfter) {
-    return undefined
-  }
-
-  const timeoutSeconds = Number.parseFloat(retryAfter)
-  if (Number.isFinite(timeoutSeconds) && timeoutSeconds >= 0) {
-    return timeoutSeconds * 1000
-  }
-
-  const parsedDateMs = Date.parse(retryAfter)
-  if (!Number.isNaN(parsedDateMs)) {
-    return Math.max(0, parsedDateMs - now)
-  }
-
-  return undefined
-}
-
-function normalizeHeaders(headers: unknown): RequestErrorMeta["responseHeaders"] | undefined {
-  if (!headers) {
-    return undefined
-  }
-
-  if (typeof Headers !== "undefined" && headers instanceof Headers) {
-    return headers
-  }
-
-  if (Array.isArray(headers)) {
-    const normalized: Record<string, string> = {}
-    for (const entry of headers) {
-      if (!Array.isArray(entry) || entry.length < 2) {
-        continue
-      }
-      const [key, value] = entry
-      if (typeof key === "string" && typeof value === "string") {
-        normalized[key] = value
-      }
-    }
-    return Object.keys(normalized).length > 0 ? normalized : undefined
-  }
-
-  if (isObject(headers)) {
-    const normalized: Record<string, string> = {}
-    for (const [key, value] of Object.entries(headers)) {
-      if (typeof value === "string") {
-        normalized[key] = value
-      }
-    }
-    return Object.keys(normalized).length > 0 ? normalized : undefined
-  }
-
-  return undefined
 }
 
 function inferRequestErrorKind({ statusCode, message }: { statusCode?: number, message: string }): RequestErrorKind {
@@ -282,13 +174,6 @@ function normalizeStatusCode(value: unknown): number | undefined {
   return value
 }
 
-function normalizeNonNegativeNumber(value: unknown): number | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    return undefined
-  }
-  return value
-}
-
 function normalizeBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined
 }
@@ -297,15 +182,12 @@ function isObject(value: unknown): value is object {
   return typeof value === "object" && value !== null
 }
 
-function withJitter(delayMs: number, disabled: boolean): number {
-  if (disabled) {
-    return delayMs
-  }
+function withJitter(delayMs: number): number {
   return delayMs + Math.random() * 0.1 * delayMs
 }
 
 function clampRetryDelay(delayMs: number): number {
-  return Math.min(Math.max(0, delayMs), MAX_RETRY_AFTER_MS)
+  return Math.min(Math.max(0, delayMs), MAX_RETRY_DELAY_MS)
 }
 
 function removeUndefined<T extends Record<string, unknown>>(value: T): T {

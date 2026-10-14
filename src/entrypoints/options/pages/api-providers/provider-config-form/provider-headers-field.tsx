@@ -5,7 +5,6 @@ import { submitWithPersistence } from "@/components/form/form-context"
 import { HelpTooltip } from "@/components/help-tooltip"
 import { isLLMProviderConfig } from "@/types/config/provider"
 import { i18n } from "@/utils/i18n"
-import { getDefaultProviderHeaders } from "@/utils/providers/headers"
 import { AutosavedJsonCodeEditorField } from "./components/autosaved-json-code-editor-field"
 import { withForm } from "./form"
 
@@ -59,8 +58,7 @@ export const ProviderHeadersField = withForm({
       return null
     }
 
-    const defaultHeaders = getDefaultProviderHeaders(providerConfig.provider)
-    const placeholderText = JSON.stringify(defaultHeaders ?? EXAMPLE_HEADERS_PLACEHOLDER, null, 2)
+    const placeholderText = JSON.stringify(EXAMPLE_HEADERS_PLACEHOLDER, null, 2)
 
     return (
       <AutosavedJsonCodeEditorField

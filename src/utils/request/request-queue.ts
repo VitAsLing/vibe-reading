@@ -3,7 +3,7 @@ import { deepmerge } from "deepmerge-ts"
 import { requestQueueConfigSchema } from "@/types/config/translate"
 import { getRandomUUID } from "@/utils/crypto-polyfill"
 import { BinaryHeapPQ } from "./priority-queue"
-import { defaultRequestRetryPolicy } from "./retry-policy"
+import { attachRequestErrorMeta, defaultRequestRetryPolicy } from "./retry-policy"
 
 interface RequestTask {
   hash: string
@@ -139,7 +139,12 @@ export class RequestQueue {
       // Create a timeout promise
       const timeoutPromise = new Promise((_, reject) => {
         timeoutId = setTimeout(() => {
-          reject(new Error(`Task ${task.id} timed out after ${this.options.timeoutMs}ms`))
+          // The thunk is still pending; replaying it can duplicate paid provider work.
+          // Remote HTTP errors keep their own retry policy. Readers can retry explicitly.
+          reject(attachRequestErrorMeta(new Error(`Task ${task.id} timed out after ${this.options.timeoutMs}ms`), {
+            kind: "timeout",
+            isRetryable: false,
+          }))
         }, this.options.timeoutMs)
       })
 
@@ -163,7 +168,6 @@ export class RequestQueue {
         retryCount: task.retryCount,
         maxRetries: this.options.maxRetries,
         baseRetryDelayMs: this.options.baseRetryDelayMs,
-        now,
       })
 
       // Check if we should retry
