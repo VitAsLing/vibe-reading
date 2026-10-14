@@ -18,10 +18,12 @@ import { runContentBoundaryCases } from "./boundaries/content.mjs"
 import { runErrorBoundaryCases } from "./boundaries/errors.mjs"
 import { runIframeSimplificationCases } from "./boundaries/iframe-simplification.mjs"
 import { runInputBoundaryCases } from "./boundaries/input.mjs"
+import { runLayoutBoundaryCases } from "./boundaries/layout.mjs"
 import { runPendingOwnerCases } from "./boundaries/pending-owner.mjs"
 import { runPendingSaveCases } from "./boundaries/pending-save.mjs"
 import { runQueueConfirmationCases } from "./boundaries/queue-confirmation.mjs"
 import { runReloadBoundaryCases } from "./boundaries/reload.mjs"
+import { runRequestBoundaryCases } from "./boundaries/request.mjs"
 import { runSettingsBoundaryCases } from "./boundaries/settings.mjs"
 import { runStateBoundaryCases } from "./boundaries/state.mjs"
 import { installStorageBoundary } from "./boundaries/storage.mjs"
@@ -212,7 +214,8 @@ const server = http.createServer((req, res) => {
     const system = payload.messages.find(message => message.role === "system")?.content ?? ""
     const input = payload.messages.find(message => message.role === "user")?.content ?? ""
     const detection = system.includes("language detection assistant")
-    const entry = { id: requests.length + 1, atMs: Date.now() - started, kind: detection ? "language" : "translation", input, status: detection ? 200 : providerStatus }
+    const entry = { id: requests.length + 1, atMs: Date.now() - started, kind: detection ? "language" : "translation", input, status: detection ? 200 : providerStatus,
+      testHeaders: { acceptance: req.headers["x-acceptance"] ?? null, empty: req.headers["x-empty"] ?? null } }
     requests.push(entry)
     res.on("close", () => {
       entry.closedAtMs = Date.now() - started
@@ -1068,6 +1071,8 @@ try {
     await runIframeSimplificationCases(harness)
     await runUIBoundaryCases(harness)
     await runSettingsBoundaryCases(harness)
+    await runRequestBoundaryCases(harness)
+    await runLayoutBoundaryCases(harness)
     if (nativeVisibility) {
       await runReloadBoundaryCases(harness)
       await runErrorBoundaryCases(harness)

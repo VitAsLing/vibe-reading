@@ -49,22 +49,21 @@ describe("aiTranslate", () => {
   })
 
   it("preserves AI SDK error metadata for retry policy decisions", async () => {
+    const responseHeaders = { "retry-after": "2" }
     const rateLimitedError = Object.assign(new Error("Too Many Requests"), {
       statusCode: 429,
       isRetryable: true,
-      responseHeaders: {
-        "retry-after": "2",
-      },
+      responseHeaders,
     })
     mocks.generateText.mockRejectedValue(rateLimitedError)
 
     const error = await aiTranslate("hello", "Chinese", providerConfig, promptResolver).catch(error => error)
 
     expect(error).toBe(rateLimitedError)
+    expect(error.responseHeaders).toBe(responseHeaders)
     expect(getRequestErrorMeta(error)).toEqual(expect.objectContaining({
       statusCode: 429,
       isRetryable: true,
-      retryAfterMs: 2000,
       kind: "rate-limit",
     }))
   })

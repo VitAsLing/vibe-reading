@@ -61,12 +61,14 @@ The result is deliberately simple: **Vibe Reading is for reading.**
 ```bash
 pnpm install
 pnpm lint
-pnpm test
 pnpm type-check
 pnpm build
 ```
 
-The pre-push hook runs lint, type checking, and tests directly through pnpm, without a task cache.
+The pre-push hook checks lint and types. Existing unit tests remain available with
+`pnpm test` or a focused `pnpm exec vitest run <path>`. The Build workflow is the
+single PR validation entrypoint: it runs lint, types, existing unit tests, browser
+packaging and loaded-extension E2E on Node 24.
 
 The extension lifecycle E2E loads the production build into a disposable Chromium profile and exercises bilingual and translation-only modes. It covers background wakeup, individual retries in mixed inline/block content, reload with mounted error controls, dynamic content and SPA navigation, in-flight and silent extension reloads, page reload recovery, delayed success/failure after stop or element reuse, request ownership across sessions, cancellation before wrapper insertion, and out-of-order page language detection. It also covers same-URL source changes and detached error controls, independent keyboard/mouse presses with delayed configuration, iframe state rejection, late storage acknowledgements, settings startup failures and recovery, failed saves, theme/configuration freshness, and live shortcut updates. Model responses use a local HTTP fixture. Timing and failure injection occurs at Chrome storage/message, HTTP, locale-fetch, and animation-frame boundaries; internal extension functions are not mocked. No regular browser profile or production API key is read.
 
@@ -75,11 +77,33 @@ pnpm build
 pnpm exec playwright install chromium
 pnpm e2e:extension
 pnpm e2e:extension .output/chrome-mv3 .output/acceptance/translation-only --translation-only
+E2E_NATIVE_VISIBILITY=1 pnpm e2e:extension .output/chrome-mv3 .output/acceptance/native-bilingual
+E2E_NATIVE_VISIBILITY=1 pnpm e2e:extension .output/chrome-mv3 .output/acceptance/native-translation-only --translation-only
 ```
 
-Run the two modes sequentially. Use `--case=<name>` for a focused scenario; an unknown case fails acceptance. Set `E2E_BROWSER_EXECUTABLE` to an existing Chrome for Testing executable to check a specific browser version; otherwise the runner uses Playwright Chromium. The Build workflow runs both modes against the production Chrome build after packaging and uploads acceptance artifacts separately from release ZIPs, including when a scenario fails.
+Run these four groups sequentially. The native groups also cover concurrent
+configuration editors, atomic save failures, background readiness, live queue
+updates and save-confirmation ownership. Use `--case=<name>` for a focused
+scenario and keep `E2E_NATIVE_VISIBILITY=1` for native-only cases; an inapplicable
+case fails acceptance. Set `E2E_BROWSER_EXECUTABLE` to an existing Chrome for
+Testing executable to check a specific browser version; otherwise the runner
+uses Playwright Chromium. CI runs all four groups against the production Chrome
+build after packaging and uploads acceptance artifacts separately from release
+ZIPs, including when a scenario fails.
 
-Playwright emulates page focus by default. The configuration-refresh scenario explicitly dispatches the public `visibilitychange` entry; this suite does not establish native tab hidden/visible transitions or native blur. Authenticated X-page behavior and production model-service behavior are also outside its evidence.
+Playwright emulates page focus in the default two groups. Their configuration-refresh
+scenario explicitly dispatches the public `visibilitychange` entry, so those
+groups do not establish native tab hidden/visible transitions or native blur.
+The two native groups attach without focus overrides and exercise real hidden
+and frozen-page reloads. Authenticated X-page behavior and production
+model-service behavior are outside all four groups' evidence.
+
+A local request-queue deadline reports a timeout without automatically replaying
+the provider request that is still pending. A late translation response cannot
+replace that error or populate the translation cache; the reader can retry
+explicitly. Completed remote HTTP failures retain their existing retry policy.
+The local deadline does not cancel the original HTTP connection, and article
+summary generation has separate SDK retries and cache behavior.
 
 Artifacts in `.output/acceptance/extension-lifecycle` include the actual browser version, the revision and working-tree state, source/script/build hashes captured before launch, steps and assertions, HTTP and public-message records, worker stop/restart ordering, the Chrome extension error list, screenshots, and `trace.zip`. Inspect the trace with `pnpm exec playwright show-trace <path-to-trace.zip>`.
 

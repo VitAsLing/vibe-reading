@@ -1,8 +1,4 @@
-import type { LLMProviderTypes } from "@/types/config/provider"
-
-export const DEFAULT_PROVIDER_HEADERS: Partial<Record<LLMProviderTypes, Record<string, string>>> = {}
-
-function compactStringRecord(record?: Readonly<Record<string, unknown>>): Record<string, string> | undefined {
+export function getProviderHeaders(record?: Readonly<Record<string, unknown>>): Record<string, string> | undefined {
   if (!record) {
     return undefined
   }
@@ -15,19 +11,4 @@ function compactStringRecord(record?: Readonly<Record<string, unknown>>): Record
   )
 
   return Object.keys(compacted).length > 0 ? compacted : undefined
-}
-
-export function getDefaultProviderHeaders(provider: LLMProviderTypes): Record<string, string> | undefined {
-  return compactStringRecord(DEFAULT_PROVIDER_HEADERS[provider])
-}
-
-export function getProviderHeadersWithOverride(
-  provider: LLMProviderTypes,
-  userHeaders?: Record<string, unknown>,
-): Record<string, string> | undefined {
-  if (userHeaders !== undefined) {
-    return compactStringRecord(userHeaders)
-  }
-
-  return getDefaultProviderHeaders(provider)
 }

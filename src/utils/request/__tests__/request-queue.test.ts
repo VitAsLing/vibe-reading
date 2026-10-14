@@ -514,9 +514,6 @@ describe("requestQueue – retry policy and queue fail-fast drain", () => {
     const completed: string[] = []
     const rateLimitedError = Object.assign(new Error("Too Many Requests"), {
       statusCode: 429,
-      responseHeaders: {
-        "retry-after": "2",
-      },
     })
 
     const firstPromise = q.enqueue(

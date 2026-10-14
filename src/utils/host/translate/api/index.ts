@@ -1,1 +1,0 @@
-export { aiTranslate } from "./ai"
