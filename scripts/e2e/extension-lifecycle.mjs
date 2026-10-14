@@ -19,6 +19,8 @@ import { runErrorBoundaryCases } from "./boundaries/errors.mjs"
 import { runIframeSimplificationCases } from "./boundaries/iframe-simplification.mjs"
 import { runInputBoundaryCases } from "./boundaries/input.mjs"
 import { runLayoutBoundaryCases } from "./boundaries/layout.mjs"
+import { runLocaleIframeCases } from "./boundaries/locale-iframe.mjs"
+import { runModelBoundaryCases } from "./boundaries/models.mjs"
 import { runPendingOwnerCases } from "./boundaries/pending-owner.mjs"
 import { runPendingSaveCases } from "./boundaries/pending-save.mjs"
 import { runQueueConfirmationCases } from "./boundaries/queue-confirmation.mjs"
@@ -202,7 +204,8 @@ function fixtureDocument(url) {
 
 const server = http.createServer((req, res) => {
   void (async () => {
-    if (req.url !== "/v1/chat/completions") {
+    const isResponses = req.url === "/v1/responses"
+    if (!isResponses && req.url !== "/v1/chat/completions") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" })
       res.end(fixtureDocument(req.url))
       return
@@ -211,10 +214,13 @@ const server = http.createServer((req, res) => {
     for await (const chunk of req)
       body += chunk
     const payload = JSON.parse(body)
-    const system = payload.messages.find(message => message.role === "system")?.content ?? ""
-    const input = payload.messages.find(message => message.role === "user")?.content ?? ""
+    const messages = isResponses ? payload.input : payload.messages
+    const contentText = content => typeof content === "string" ? content : (content ?? []).map(part => part.text ?? "").join("\n")
+    const system = payload.instructions ?? contentText(messages.find(message => ["system", "developer"].includes(message.role))?.content)
+    const input = contentText(messages.find(message => message.role === "user")?.content)
     const detection = system.includes("language detection assistant")
     const entry = { id: requests.length + 1, atMs: Date.now() - started, kind: detection ? "language" : "translation", input, status: detection ? 200 : providerStatus,
+      endpoint: req.url, model: payload.model, reasoning: payload.reasoning ?? null, thinking: payload.thinking ?? null,
       testHeaders: { acceptance: req.headers["x-acceptance"] ?? null, empty: req.headers["x-empty"] ?? null } }
     requests.push(entry)
     res.on("close", () => {
@@ -239,6 +245,14 @@ const server = http.createServer((req, res) => {
             const response = [...providerResponses].find(([marker]) => part.includes(marker))?.[1]
             return response === "empty" ? "" : response === "echo" ? part.trim() : `[E2E translated] ${part.trim()}`
           }).join("\n%%\n")
+      if (isResponses) {
+        res.end(JSON.stringify({
+          id: "resp_e2e_local", object: "response", created_at: 1, status: "completed", model: payload.model,
+          output: [{ id: "msg_e2e_local", type: "message", status: "completed", role: "assistant", content: [{ type: "output_text", text, annotations: [] }] }],
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } },
+        }))
+        return
+      }
       res.end(JSON.stringify({
         id: "e2e-local", object: "chat.completion", created: 1, model: "fixture-model",
         choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }],
@@ -1073,6 +1087,8 @@ try {
     await runSettingsBoundaryCases(harness)
     await runRequestBoundaryCases(harness)
     await runLayoutBoundaryCases(harness)
+    await runLocaleIframeCases(harness)
+    await runModelBoundaryCases(harness)
     if (nativeVisibility) {
       await runReloadBoundaryCases(harness)
       await runErrorBoundaryCases(harness)

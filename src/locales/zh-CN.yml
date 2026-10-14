@@ -53,7 +53,7 @@ options:
     page: 页设置 API Key
   apiProviders:
     title: API 提供商
-    description: 配置用于翻译和词汇解析功能的 API 提供商。我们内置了 20 多个提供商，并支持任何 OpenAI 兼容 API 提供商。
+    description: 配置网页翻译使用的 API 提供商。支持 OpenAI、DeepSeek 以及任何 OpenAI 兼容 API。
     addProvider: 添加提供商
     badges:
       featureCount: $1 个功能
@@ -89,6 +89,8 @@ options:
       defaultProvider:
         translate: 设为默认翻译提供商
       models:
+        retiredLabel: $1（已下线）
+        retiredWarning: 官方 API 已于 $2 停止提供 $1。请选择仍受支持的模型，原设置已保留。
         translate:
           title: 翻译模型
           customTitle: 自定义翻译模型

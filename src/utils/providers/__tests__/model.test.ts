@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { storage } from "#imports"
+import { getRequestErrorMeta } from "@/utils/request/retry-policy"
 
 let getStorageItemMock: ReturnType<typeof vi.fn>
 
@@ -72,7 +73,7 @@ describe("getModelById", () => {
       }],
     })
 
-    const { getModelById } = await import("../model")
+    const { getModelById, getModelFromProviderConfig } = await import("../model")
     const result = await getModelById("openai-default")
 
     expect(result).toBe("openai-model")
@@ -80,6 +81,23 @@ describe("getModelById", () => {
       apiKey: "test-key",
     }))
     expect(openAILanguageModelMock).toHaveBeenCalledWith("gpt-5-mini")
+
+    const retiredConfig = {
+      id: "saved-provider", name: "Saved provider", enabled: true, provider: "openai" as const,
+      model: { model: "gpt-5-chat-latest" as const, isCustomModel: false, customModel: null },
+    }
+    let retirementError: unknown
+    try {
+      getModelFromProviderConfig(retiredConfig)
+    }
+    catch (error) {
+      retirementError = error
+    }
+    expect(retirementError).toBeInstanceOf(Error)
+    expect((retirementError as Error).message).toContain("gpt-5-chat-latest")
+    expect(getRequestErrorMeta(retirementError)).toEqual(expect.objectContaining({ kind: "bad-request", isRetryable: false }))
+    expect(getModelFromProviderConfig({ ...retiredConfig, baseURL: "https://proxy.example.com/v1" })).toBe("openai-model")
+    expect(getModelFromProviderConfig({ ...retiredConfig, model: { ...retiredConfig.model, isCustomModel: true, customModel: "gpt-6-luna" } })).toBe("openai-model")
   })
 
   it("creates DeepSeek language models", async () => {

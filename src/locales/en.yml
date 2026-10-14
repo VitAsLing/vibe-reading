@@ -53,7 +53,7 @@ options:
     page: page
   apiProviders:
     title: API Providers
-    description: Configure API providers for translation and vocabulary insight. We have 20+ built-in providers and support any OpenAI-compatible API provider.
+    description: Configure API providers for page translation. Supports OpenAI, DeepSeek, and any OpenAI-compatible API.
     addProvider: Add Provider
     badges:
       featureCount: $1 features
@@ -89,6 +89,8 @@ options:
       defaultProvider:
         translate: Set as default translate provider
       models:
+        retiredLabel: $1 (retired)
+        retiredWarning: The official API stopped serving $1 on $2. Select a supported model. Your saved settings have been preserved.
         translate:
           title: Translate Model
           customTitle: Translate Custom Model

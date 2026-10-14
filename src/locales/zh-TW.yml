@@ -53,7 +53,7 @@ options:
     page: 頁面設定 API 金鑰
   apiProviders:
     title: API 提供者
-    description: 設定用於翻譯和詞彙解析功能的 API 提供者。我們內建了 20 多個提供者，並支援任何 OpenAI 相容 API 提供者。
+    description: 設定網頁翻譯使用的 API 提供商。支援 OpenAI、DeepSeek 及任何 OpenAI 相容 API。
     addProvider: 新增提供者
     badges:
       featureCount: $1 個功能
@@ -88,6 +88,8 @@ options:
       defaultProvider:
         translate: 設為預設翻譯提供者
       models:
+        retiredLabel: $1（已下線）
+        retiredWarning: 官方 API 已於 $2 停止提供 $1。請選擇仍受支援的模型，原設定已保留。
         translate:
           title: 翻譯模型
           customTitle: 自訂翻譯模型

@@ -74,10 +74,14 @@ function applyPlural(message: string, count?: number) {
   }
 }
 
-export async function loadUiLocaleMessages(locale: UILocale, options?: { applyDocumentLang?: boolean }) {
+export async function loadUiLocaleMessages(locale: UILocale, options?: {
+  applyDocumentLang?: boolean
+  fetchMessages?: (url: string) => Promise<Response>
+}) {
   const directory = LOCALE_DIRECTORY[locale]
   const getRuntimeUrl = browser.runtime.getURL as (path: string) => string
-  const response = await fetch(getRuntimeUrl(`_locales/${directory}/messages.json`))
+  const url = getRuntimeUrl(`_locales/${directory}/messages.json`)
+  const response = options?.fetchMessages ? await options.fetchMessages(url) : await fetch(url)
   if (!response.ok) {
     throw new Error(`Failed to load UI locale messages for ${locale}`)
   }

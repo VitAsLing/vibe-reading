@@ -53,7 +53,7 @@ options:
     page: настроек
   apiProviders:
     title: API-провайдеры
-    description: Настройте API-провайдеров для функций перевода и анализа слов. У нас более 20 встроенных провайдеров и поддержка любых OpenAI-совместимых API.
+    description: Настройте API для перевода страниц. Поддерживаются OpenAI, DeepSeek и любые API, совместимые с OpenAI.
     addProvider: Добавить провайдера
     badges:
       featureCount: $1 функций
@@ -88,6 +88,8 @@ options:
       defaultProvider:
         translate: Установить как провайдер перевода по умолчанию
       models:
+        retiredLabel: $1 (отключена)
+        retiredWarning: Официальный API прекратил поддержку $1 $2. Выберите поддерживаемую модель. Сохранённые настройки сохранены.
         translate:
           title: Модель перевода
           customTitle: Пользовательская модель перевода

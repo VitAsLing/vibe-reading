@@ -2,6 +2,49 @@ import assert from "node:assert/strict"
 import { writeFile } from "node:fs/promises"
 import path from "node:path"
 
+// The real worker fetch completes normally. Only delivery of its successful
+// locale Response is held; reloading destroys the worker and closes Chrome's
+// actual pending backgroundFetch channel to the old content bootstrap.
+function installWorkerLocaleFetchBoundary(url) {
+  const nativeFetch = globalThis.fetch
+  const state = globalThis.__E2E_WORKER_LOCALE_FETCH__ = { calls: [], held: [], holdNext: true }
+  const observed = async (...args) => {
+    const input = args[0]
+    const requestURL = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+    if (requestURL !== url || !state.holdNext)
+      return nativeFetch.apply(globalThis, args)
+    state.holdNext = false
+    const entry = { url: requestURL, forwardedAt: Date.now(), forwarded: true }
+    state.calls.push(entry)
+    try {
+      const response = await nativeFetch.apply(globalThis, args)
+      entry.status = response.status
+      const messages = await response.clone().json()
+      entry.messageCount = Object.keys(messages).length
+      entry.nativeCompletedAt = Date.now()
+      return await new Promise((resolve) => {
+        entry.held = true
+        state.held.push(() => {
+          entry.deliveredAt = Date.now()
+          resolve(response)
+        })
+      })
+    }
+    catch (error) {
+      entry.error = error.message
+      throw error
+    }
+  }
+  globalThis.fetch = observed
+  state.restore = () => {
+    state.holdNext = false
+    for (const release of state.held.splice(0))
+      release()
+    if (globalThis.fetch === observed)
+      globalThis.fetch = nativeFetch
+  }
+}
+
 export async function runErrorBoundaryCases(h) {
   const { check, page, context, extensionId, prepareHost, until, nodeGesture, hasTranslation, requests, setProviderStatus, setProviderFailureMessage, inContentWorld, waitForMessageResult, outputPath } = h
   for (const [suffix, message] of [
@@ -109,43 +152,42 @@ export async function runErrorBoundaryCases(h) {
   })
 
   await check("audit-bootstrap-resource-cancel-after-reload", async () => {
-    let release
-    let resolveSeen
-    let timeout
     const url = `chrome-extension://${extensionId}/_locales/en/messages.json`
-    const seen = new Promise((resolve) => {
-      resolveSeen = resolve
-    })
-    await page.route(url, async (route) => {
-      resolveSeen()
-      await new Promise((resolve) => {
-        release = resolve
-      })
-      await route.abort("failed")
-    })
+    const worker = await h.extensionWorker()
+    const evidence = { url, boundary: "The actual worker fetch and locale body read complete; only delivery of the native Response is held before a real extension reload closes the pending backgroundFetch channel." }
+    let reloaded = false
+    await worker.evaluate(installWorkerLocaleFetchBoundary, url)
     try {
       await page.goto(`${h.origin}/audit-bootstrap-resource-cancel`)
-      await Promise.race([seen, new Promise((resolve, reject) => {
-        timeout = setTimeout(() => reject(new Error("Native locale request was not intercepted")), 8000)
-      })])
-      clearTimeout(timeout)
+      await until(async () => await worker.evaluate(() => globalThis.__E2E_WORKER_LOCALE_FETCH__.held.length === 1), "the actual worker locale fetch completes and its native Response delivery is held", 8000)
+      evidence.fetch = await worker.evaluate(() => globalThis.__E2E_WORKER_LOCALE_FETCH__.calls[0])
+      assert.equal(evidence.fetch.forwarded, true, "locale loading must reach the real worker fetch")
+      assert.equal(evidence.fetch.status, 200, "the held response must originate from the actual packaged locale resource")
+      assert.ok(evidence.fetch.messageCount > 0 && evidence.fetch.nativeCompletedAt && evidence.fetch.held && !evidence.fetch.deliveredAt && !evidence.fetch.error)
       const world = await h.contentWorld()
       assert.equal(await page.locator("[data-vibe-reading-host-toast]").count(), 0, "locale must still be pending before host mounting")
       await h.reloadExtension()
+      await until(() => !context.serviceWorkers().includes(worker), "the real reload destroys the worker holding the locale Response")
+      reloaded = true
+      assert.notEqual(await h.extensionWorker(), worker, "reload creates a distinct native extension worker")
       await page.waitForTimeout(1400)
       const invalidated = await h.cdp.send("Runtime.evaluate", { contextId: world, expression: "window.__READ_FROG_HOST_INJECTED__", returnByValue: true })
       assert.equal(invalidated.result.value, false, "the actual old bootstrap must be invalidated before resource failure")
-      release()
       await page.waitForTimeout(100)
+      assert.equal(await page.locator("[data-vibe-reading-host-toast]").count(), 0, "the old locale bootstrap must not mount a host after its real worker channel closes")
       assert.deepEqual(h.errors, [], "a cancelled resource in an invalidated bootstrap must not become an unhandled promise")
+      evidence.oldBootstrapInvalidated = invalidated.result.value === false
+      evidence.oldHostCount = await page.locator("[data-vibe-reading-host-toast]").count()
+      evidence.errors = [...h.errors]
     }
     finally {
-      clearTimeout(timeout)
-      release?.()
-      await page.unroute(url)
+      if (!reloaded && context.serviceWorkers().includes(worker))
+        await worker.evaluate(() => globalThis.__E2E_WORKER_LOCALE_FETCH__.restore())
     }
     await page.reload()
     await until(async () => await page.locator("[data-vibe-reading-host-toast]").count() === 1, "fresh host recovers after bootstrap cancellation")
+    evidence.freshHostCount = await page.locator("[data-vibe-reading-host-toast]").count()
+    await writeFile(path.join(outputPath, "bootstrap-resource-cancel-after-reload.json"), JSON.stringify(evidence, null, 2))
   })
 
   await check("audit-pending-manager-receiver-reload", async () => {

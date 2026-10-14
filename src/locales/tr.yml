@@ -53,7 +53,7 @@ options:
     page: sayfasında ayarlayın
   apiProviders:
     title: API Sağlayıcıları
-    description: Çeviri ve kelime analizi işlevleri için API sağlayıcılarını buradan yapılandırın. 20'den fazla yerleşik sağlayıcımız var ve OpenAI uyumlu tüm API sağlayıcılarını destekliyoruz.
+    description: Sayfa çevirisi için API sağlayıcılarını yapılandırın. OpenAI, DeepSeek ve OpenAI uyumlu API desteklenir.
     addProvider: Sağlayıcı Ekle
     badges:
       featureCount: $1 özellik
@@ -88,6 +88,8 @@ options:
       defaultProvider:
         translate: Varsayılan çeviri sağlayıcısı olarak ayarla
       models:
+        retiredLabel: $1 (kullanımdan kaldırıldı)
+        retiredWarning: "Resmî API, $2 tarihinde $1 desteğini sonlandırdı. Desteklenen bir model seçin. Kaydedilmiş ayarlarınız korunmuştur."
         translate:
           title: Çeviri Modeli
           customTitle: Özel Çeviri Modeli

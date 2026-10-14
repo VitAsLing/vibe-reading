@@ -159,7 +159,7 @@ export function registerNodeTranslationTriggerListeners({
     }
     catch (error) {
       discard(press)
-      reportContentScriptError("Failed to read paragraph gesture configuration:", error)
+      void reportContentScriptError("Failed to read paragraph gesture configuration:", error)
       return null
     }
   }

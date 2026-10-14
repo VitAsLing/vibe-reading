@@ -69,7 +69,7 @@ interface MutableStoredConfig extends Record<string, unknown> {
 }
 
 function buildLegacyDeepSeekConfig(
-  legacyModel: "deepseek-chat" | "deepseek-reasoner",
+  legacyModel: "deepseek-chat" | "deepseek-reasoner" | "deepseek-v4-flash" | "deepseek-v4-flash-vision-exp",
   providerOptions?: Record<string, unknown>,
   isCustomModel = false,
 ): unknown {
@@ -187,26 +187,26 @@ describe("initializeConfig", () => {
 
   it.each([
     {
-      legacyModel: "deepseek-chat" as const,
+      legacyModel: "deepseek-v4-flash" as const,
       providerOptions: undefined,
-      expectedProviderOptions: { thinking: { type: "disabled" } },
+      expectedProviderOptions: undefined,
     },
     {
-      legacyModel: "deepseek-chat" as const,
+      legacyModel: "deepseek-v4-flash" as const,
       providerOptions: { reasoningEffort: "high" },
-      expectedProviderOptions: { reasoningEffort: "high", thinking: { type: "disabled" } },
+      expectedProviderOptions: { reasoningEffort: "high" },
     },
     {
-      legacyModel: "deepseek-reasoner" as const,
-      providerOptions: undefined,
-      expectedProviderOptions: { thinking: { type: "enabled" } },
+      legacyModel: "deepseek-v4-flash-vision-exp" as const,
+      providerOptions: {},
+      expectedProviderOptions: {},
     },
     {
-      legacyModel: "deepseek-reasoner" as const,
+      legacyModel: "deepseek-v4-flash-vision-exp" as const,
       providerOptions: { thinking: { type: "disabled" }, reasoningEffort: "high" },
       expectedProviderOptions: { thinking: { type: "disabled" }, reasoningEffort: "high" },
     },
-  ])("migrates $legacyModel to DeepSeek V4 Flash without resetting config", async ({
+  ])("normalizes $legacyModel to the equivalent current Flash alias without resetting config", async ({
     legacyModel,
     providerOptions,
     expectedProviderOptions,
@@ -224,7 +224,7 @@ describe("initializeConfig", () => {
     expect(setItemMock).toHaveBeenCalledTimes(1)
     const migratedConfig = setItemMock.mock.calls[0][1] as Config
     const deepseekProvider = getDeepSeekProvider(migratedConfig)
-    expect(deepseekProvider.model.model).toBe("deepseek-v4-flash")
+    expect(deepseekProvider.model.model).toBe("deepseek-flash")
     expect(deepseekProvider.providerOptions).toEqual(expectedProviderOptions)
     expect(migratedConfig.language).toEqual(buildStableConfig().language)
     expect(loggerWarnMock).not.toHaveBeenCalled()
@@ -246,10 +246,10 @@ describe("initializeConfig", () => {
     const { initializeConfig } = await import("../init")
     await initializeConfig()
 
-    const migratedConfig = setItemMock.mock.calls[0][1] as Config
-    const deepseekProvider = getDeepSeekProvider(migratedConfig)
+    expect(setItemMock).not.toHaveBeenCalled()
+    const deepseekProvider = getDeepSeekProvider(legacyConfig as Config)
     expect(deepseekProvider.model).toEqual({
-      model: "deepseek-v4-flash",
+      model: "deepseek-chat",
       isCustomModel: true,
       customModel: "custom-deepseek-model",
     })

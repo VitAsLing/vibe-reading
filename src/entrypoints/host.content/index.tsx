@@ -2,7 +2,8 @@ import "@/utils/zod-config"
 import { defineContentScript } from "#imports"
 import { getLocalConfig } from "@/utils/config/storage"
 import { DEFAULT_CONFIG } from "@/utils/constants/config"
-import { initializeContentScriptLifecycle, isContentScriptActive, isContentScriptInvalidationError } from "@/utils/content-script/lifecycle"
+import { backgroundFetch } from "@/utils/content-script/background-fetch-client"
+import { initializeContentScriptLifecycle, isContentScriptActive, isContentScriptInvalidationError, reportContentScriptError } from "@/utils/content-script/lifecycle"
 import { loadUiLocaleMessages } from "@/utils/i18n"
 
 declare global {
@@ -30,7 +31,11 @@ export default defineContentScript({
       const initialConfig = await getLocalConfig()
       if (!isContentScriptActive())
         return
-      await loadUiLocaleMessages(initialConfig?.uiLocale ?? DEFAULT_CONFIG.uiLocale, { applyDocumentLang: false })
+      await loadUiLocaleMessages(initialConfig?.uiLocale ?? DEFAULT_CONFIG.uiLocale, {
+        applyDocumentLang: false,
+        // Embedded pages can block extension URLs; the worker reads its own package.
+        fetchMessages: url => backgroundFetch(url, undefined, { credentials: "omit" }),
+      })
       if (!isContentScriptActive())
         return
 
@@ -41,10 +46,12 @@ export default defineContentScript({
     }
     catch (error) {
       const invalidated = !ctx.isValid || isContentScriptInvalidationError(error)
-      ctx.notifyInvalidated()
       if (!invalidated) {
-        throw error
+        // Let the existing lifecycle check distinguish a reload's closed reply
+        // from a live bootstrap failure before disposing this document.
+        await reportContentScriptError("Failed to initialize page translation:", error)
       }
+      ctx.notifyInvalidated()
     }
   },
 })

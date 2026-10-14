@@ -53,7 +53,7 @@ options:
     page: APIキーを設定してください
   apiProviders:
     title: APIプロバイダー
-    description: 翻訳および語彙分析機能用のAPIプロバイダーを設定。20以上の内蔵プロバイダーに加え、OpenAI互換APIもサポートしています。
+    description: ページ翻訳用の API プロバイダーを設定します。OpenAI、DeepSeek、および OpenAI 互換 API に対応しています。
     addProvider: プロバイダーを追加
     badges:
       featureCount: $1 件の機能
@@ -88,6 +88,8 @@ options:
       defaultProvider:
         translate: デフォルト翻訳プロバイダーに設定
       models:
+        retiredLabel: $1（提供終了）
+        retiredWarning: 公式 API は $2 に $1 の提供を終了しました。対応中のモデルを選択してください。保存済みの設定は保持されています。
         translate:
           title: 翻訳モデル
           customTitle: カスタム翻訳モデル

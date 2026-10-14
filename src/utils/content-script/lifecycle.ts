@@ -38,7 +38,7 @@ export function isContentScriptInvalidationError(error: unknown): boolean {
     && messageConnectionError.test(message)
 }
 
-export function reportContentScriptError(message: string, error: unknown): void {
+export async function reportContentScriptError(message: string, error: unknown): Promise<void> {
   if (isContentScriptInvalidationError(error))
     return
 
@@ -50,15 +50,19 @@ export function reportContentScriptError(message: string, error: unknown): void 
     // Allow a full validity interval before rechecking. The next task alone
     // can still precede Chrome's binding invalidation in a foreground tab.
     // Invalidation cancels the report; a live context keeps the original error.
-    let removeInvalidationListener = () => {}
-    const timeout = setTimeout(() => {
-      removeInvalidationListener()
-      if (ctx.isValid && !isContentScriptInvalidationError(error))
-        console.error(message, error)
-    }, validityIntervalMs)
-    removeInvalidationListener = ctx.onInvalidated(() => {
-      clearTimeout(timeout)
-      removeInvalidationListener()
+    await new Promise<void>((resolve) => {
+      let removeInvalidationListener = () => {}
+      const timeout = setTimeout(() => {
+        removeInvalidationListener()
+        if (ctx.isValid && !isContentScriptInvalidationError(error))
+          console.error(message, error)
+        resolve()
+      }, validityIntervalMs)
+      removeInvalidationListener = ctx.onInvalidated(() => {
+        clearTimeout(timeout)
+        removeInvalidationListener()
+        resolve()
+      })
     })
     return
   }
@@ -75,7 +79,7 @@ export function runContentScriptTask(task: () => Promise<unknown>, message: stri
       await task()
     }
     catch (error) {
-      reportContentScriptError(message, error)
+      await reportContentScriptError(message, error)
     }
   })()
 }
