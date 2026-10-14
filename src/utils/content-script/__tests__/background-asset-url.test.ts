@@ -36,7 +36,6 @@ describe("resolveContentScriptAssetUrl", () => {
       headers: undefined,
       body: undefined,
       credentials: "omit",
-      cacheConfig: undefined,
       responseType: "base64",
     })
     expect(assetBlob).toBeInstanceOf(Blob)

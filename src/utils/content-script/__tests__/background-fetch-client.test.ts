@@ -35,7 +35,6 @@ describe("backgroundFetch", () => {
       headers: undefined,
       body: undefined,
       credentials: "omit",
-      cacheConfig: undefined,
       responseType: "text",
     })
     await expect(response.json()).resolves.toEqual({ ok: true })
@@ -62,7 +61,6 @@ describe("backgroundFetch", () => {
       headers: undefined,
       body: undefined,
       credentials: "omit",
-      cacheConfig: undefined,
       responseType: "base64",
     })
     expect(response.headers.get("content-type")).toBe("image/webp")

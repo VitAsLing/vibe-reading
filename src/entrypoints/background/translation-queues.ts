@@ -1,3 +1,4 @@
+import type { ApplyTranslationQueueConfig } from "./config"
 import type { Config } from "@/types/config/config"
 import type { LLMProviderConfig, ProviderConfig } from "@/types/config/provider"
 import type { BatchQueueConfig, RequestQueueConfig } from "@/types/config/translate"
@@ -269,4 +270,14 @@ export function setUpWebPageTranslationQueue() {
     const { data } = message
     batchQueue.setBatchConfig(data)
   })
+
+  return async (): Promise<ApplyTranslationQueueConfig> => {
+    const { requestQueue, batchQueue } = await getQueues()
+    return ({ requestQueueConfig, batchQueueConfig }) => {
+      if (requestQueueConfig)
+        requestQueue.setQueueOptions(requestQueueConfig)
+      if (batchQueueConfig)
+        batchQueue.setBatchConfig(batchQueueConfig)
+    }
+  }
 }

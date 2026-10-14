@@ -1,7 +1,7 @@
 import type { ProxyRequest, ProxyResponse } from "@/types/proxy-fetch"
 import { sendMessage } from "@/utils/message"
 
-export interface BackgroundFetchOptions extends Pick<ProxyRequest, "cacheConfig" | "credentials" | "responseType"> {}
+export interface BackgroundFetchOptions extends Pick<ProxyRequest, "credentials" | "responseType"> {}
 
 function getRequestUrl(input: RequestInfo | URL) {
   if (typeof input === "string") {
@@ -71,7 +71,6 @@ function buildProxyRequest(input: RequestInfo | URL, init?: RequestInit, options
     headers: getRequestHeaders(input, init),
     body: getRequestBody(init),
     credentials: options?.credentials,
-    cacheConfig: options?.cacheConfig,
     responseType: options?.responseType ?? "text",
   }
 }

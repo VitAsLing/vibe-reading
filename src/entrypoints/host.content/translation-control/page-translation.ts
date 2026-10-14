@@ -65,6 +65,10 @@ export class PageTranslationManager {
     return this.isPageTranslating
   }
 
+  get currentSessionVersion(): number {
+    return this.sessionVersion
+  }
+
   async start(): Promise<void> {
     if (this.disposed || !isContentScriptActive())
       return

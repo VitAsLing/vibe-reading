@@ -31,7 +31,7 @@ let writeQueue: Promise<void> = Promise.resolve()
 let writeVersion = 0
 let confirmedConfig: Config | undefined
 let confirmationVersion = 0
-const pendingPatches = new Map<number, Partial<Config>>()
+const pendingWrites = new Map<number, { patch: Partial<Config>, task: Promise<void> }>()
 
 function confirmConfig(config: Config): void {
   confirmedConfig = config
@@ -39,11 +39,34 @@ function confirmConfig(config: Config): void {
 }
 
 function withPendingWrites(config: Config): Config {
-  const next = [...pendingPatches.values()].reduce<Partial<Config>>((value, patch) => mergeWithArrayOverwrite(value, patch), config)
+  const next = [...pendingWrites.values()].reduce<Partial<Config>>((value, { patch }) => mergeWithArrayOverwrite(value, patch), config)
   const parsed = configSchema.safeParse(next)
   // An external commit can invalidate an unconfirmed collection edit. Keep
   // confirmed state until the background returns its explicit conflict.
   return parsed.success ? parsed.data : config
+}
+
+function getConfigPatchField(patch: unknown, path: string[]): unknown {
+  return path.reduce<unknown>((current, key) =>
+    current !== null && typeof current === "object" ? (current as Record<string, unknown>)[key] : undefined, patch)
+}
+
+function getPendingWriteTasks(patch: Partial<Config>): Promise<void>[] {
+  const writes = [...pendingWrites.values()].reverse()
+  const tasks = new Set<Promise<void>>()
+  const visit = (value: unknown, path: string[]) => {
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      for (const [key, child] of Object.entries(value))
+        visit(child, [...path, key])
+    }
+    else {
+      const owner = writes.find(write => getConfigPatchField(write.patch, path) !== undefined)
+      if (owner)
+        tasks.add(owner.task)
+    }
+  }
+  visit(patch, [])
+  return [...tasks]
 }
 
 function reportSaveFailure(error: unknown): void {
@@ -69,6 +92,18 @@ export const writeConfigAtom = atom(
     }
     const optimisticNext = parsed.data
     const changedPatch = getChangedConfigFields(localPrev, optimisticNext)
+    if (Object.keys(changedPatch).length === 0) {
+      // Fields queued back to a confirmed value still have a pending owner.
+      const tasks = getPendingWriteTasks(patch)
+      if (tasks.length === 1)
+        return tasks[0]
+      if (tasks.length > 1) {
+        const receipt = Promise.all(tasks).then(() => {})
+        // Original owners report failures; ignored joined receipts also need a handler.
+        void receipt.catch(() => {})
+        return receipt
+      }
+    }
     const collectionBase = {
       ...(changedPatch.providersConfig !== undefined && { providersConfig: localPrev.providersConfig }),
       ...(changedPatch.translate?.customPromptsConfig !== undefined
@@ -78,7 +113,6 @@ export const writeConfigAtom = atom(
 
     // Capture version for this write (used for stale-write detection later)
     const currentWriteVersion = ++writeVersion
-    pendingPatches.set(currentWriteVersion, changedPatch)
 
     // ─────────────────────────────────────────────────────────────────────────
     // STEP 2: Queue the actual storage write
@@ -100,11 +134,12 @@ export const writeConfigAtom = atom(
         throw error
       }
       finally {
-        pendingPatches.delete(currentWriteVersion)
+        pendingWrites.delete(currentWriteVersion)
         if (isContentScriptActive())
           set(configAtom, withPendingWrites(confirmedConfig ?? localPrev))
       }
     })
+    pendingWrites.set(currentWriteVersion, { patch: changedPatch, task })
 
     // Handle failure on the queue head so subsequent writes can still run.
     // Return the original handled promise. Awaiting callers still receive the
@@ -167,14 +202,6 @@ configAtom.onMount = (setAtom: (newValue: Config) => void) => {
     document.removeEventListener("visibilitychange", handleVisibilityChange)
   }
 }
-
-// export const configFieldAtom = <K extends Keys>(key: K) => {
-//   const readAtom = selectAtom(configAtom, (c) => c[key]); // 现在是同步
-//   const writeAtom = atom(null, (_get, set, val: Config[K]) =>
-//     set(writeConfigAtom, { [key]: val })
-//   );
-//   return [readAtom, writeAtom] as const;
-// };
 
 type Keys = keyof Config
 
