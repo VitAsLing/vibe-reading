@@ -1,5 +1,5 @@
 import { IconRefresh } from "@tabler/icons-react"
-import { useSetAtom } from "jotai"
+import { useAtomValue, useSetAtom } from "jotai"
 import { useState } from "react"
 import {
   AlertDialog,
@@ -13,13 +13,15 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/base-ui/alert-dialog"
 import { Button } from "@/components/ui/base-ui/button"
-import { writeConfigAtom } from "@/utils/atoms/config"
+import { configAtom, writeConfigAtom } from "@/utils/atoms/config"
 import { DEFAULT_CONFIG } from "@/utils/constants/config"
 import { i18n } from "@/utils/i18n"
 import { logger } from "@/utils/logger"
 import { ConfigCard } from "../../components/config-card"
 
 export function ResetConfig() {
+  // Reset compares defaults with the current snapshot, including other editors.
+  useAtomValue(configAtom)
   const [open, setOpen] = useState(false)
   const setConfig = useSetAtom(writeConfigAtom)
   async function resetToDefaultConfig() {

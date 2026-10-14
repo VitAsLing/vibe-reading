@@ -6,13 +6,6 @@ export interface ProxyResponse {
   bodyEncoding?: "text" | "base64"
 }
 
-export interface CacheConfig {
-  enabled: boolean
-  groupKey: string
-  ttl?: number
-  maxSize?: number
-}
-
 export interface ProxyRequest {
   url: string
   method?: string
@@ -20,6 +13,5 @@ export interface ProxyRequest {
   body?: string
   credentials?: "omit" | "same-origin" | "include"
   redirect?: RequestRedirect
-  cacheConfig?: CacheConfig
   responseType?: "text" | "base64"
 }

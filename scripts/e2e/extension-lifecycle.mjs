@@ -9,6 +9,7 @@ import process from "node:process"
 import { fileURLToPath } from "node:url"
 import { chromium } from "playwright"
 import { runBackgroundRecoveryCases } from "./boundaries/background-recovery.mjs"
+import { runBootstrapReadCases } from "./boundaries/bootstrap-read.mjs"
 import { runConfigActionCases } from "./boundaries/config-actions.mjs"
 import { runConfigAtomicCases } from "./boundaries/config-atomic.mjs"
 import { runConfigConcurrencyCases } from "./boundaries/config-concurrency.mjs"
@@ -17,6 +18,9 @@ import { runContentBoundaryCases } from "./boundaries/content.mjs"
 import { runErrorBoundaryCases } from "./boundaries/errors.mjs"
 import { runIframeSimplificationCases } from "./boundaries/iframe-simplification.mjs"
 import { runInputBoundaryCases } from "./boundaries/input.mjs"
+import { runPendingOwnerCases } from "./boundaries/pending-owner.mjs"
+import { runPendingSaveCases } from "./boundaries/pending-save.mjs"
+import { runQueueConfirmationCases } from "./boundaries/queue-confirmation.mjs"
 import { runReloadBoundaryCases } from "./boundaries/reload.mjs"
 import { runSettingsBoundaryCases } from "./boundaries/settings.mjs"
 import { runStateBoundaryCases } from "./boundaries/state.mjs"
@@ -1073,6 +1077,10 @@ try {
       await runContentCleanupCases(harness)
       await runBackgroundRecoveryCases(harness)
       await runUIAcknowledgementCases(harness)
+      await runPendingSaveCases(harness)
+      await runPendingOwnerCases(harness)
+      await runBootstrapReadCases(harness)
+      await runQueueConfirmationCases(harness)
     }
     for (const name of selectedCases)
       assert.ok(cases.some(item => item.name === name), `No applicable acceptance case: ${name}`)

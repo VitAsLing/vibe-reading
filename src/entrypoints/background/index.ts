@@ -15,7 +15,8 @@ export default defineBackground({
   type: "module",
   main: () => {
     logger.info("Hello background!", { id: browser.runtime.id })
-    setupConfigurationMessages()
+    const prepareQueueConfigApply = setUpWebPageTranslationQueue()
+    setupConfigurationMessages(prepareQueueConfigApply)
 
     onMessage("openOptionsPage", async (message) => {
       logger.info("openOptionsPage", message.data)
@@ -29,7 +30,6 @@ export default defineBackground({
 
     translationMessage()
 
-    setUpWebPageTranslationQueue()
     void setUpDatabaseCleanup().catch(error => logger.error("Failed to initialize cache cleanup alarms:", error))
 
     proxyFetch()

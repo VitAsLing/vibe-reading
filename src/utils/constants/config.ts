@@ -1,5 +1,4 @@
 import type { Config } from "@/types/config/config"
-import type { PageTranslateRange } from "@/types/config/translate"
 import { DEFAULT_TRANSLATE_PROMPTS_CONFIG } from "./prompt"
 import { DEFAULT_PROVIDER_CONFIG_LIST } from "./providers"
 import { DEFAULT_AUTO_TRANSLATE_SHORTCUT_KEY, DEFAULT_BATCH_CONFIG, DEFAULT_MIN_CHARACTERS_PER_NODE, DEFAULT_MIN_WORDS_PER_NODE, DEFAULT_PRELOAD_MARGIN, DEFAULT_PRELOAD_THRESHOLD, DEFAULT_REQUEST_CAPACITY, DEFAULT_REQUEST_RATE } from "./translate"
@@ -52,12 +51,4 @@ export const DEFAULT_CONFIG: Config = {
       customCSS: null,
     },
   },
-}
-
-export const PAGE_TRANSLATE_RANGE_ITEMS: Record<
-  PageTranslateRange,
-  { label: string }
-> = {
-  main: { label: "Main" },
-  all: { label: "All" },
 }

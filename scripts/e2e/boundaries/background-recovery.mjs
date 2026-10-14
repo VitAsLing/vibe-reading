@@ -87,6 +87,17 @@ function observeTranslationReplies() {
       if (message?.type === "enqueueTranslateRequest") {
         state.push({ text: message.data.text, error: response?.err?.message, received: true })
       }
+      else if (message?.type === "saveConfiguration") {
+        state.push({
+          type: message.type,
+          mode: message.data.patch?.translate?.mode,
+          capacity: message.data.patch?.translate?.requestQueueConfig?.capacity,
+          queueFields: Object.keys(message.data.patch?.translate ?? {}).filter(key => ["requestQueueConfig", "batchQueueConfig"].includes(key)),
+          savedMode: response?.res?.translate?.mode,
+          savedCapacity: response?.res?.translate?.requestQueueConfig?.capacity,
+          error: response?.err?.message, received: true,
+        })
+      }
       return response
     }
     const callback = typeof args.at(-1) === "function" ? args.at(-1) : null
@@ -123,16 +134,28 @@ export async function runBackgroundRecoveryCases(h) {
     hasTranslation, inContentWorld, extensionWorker, installStorageBoundary,
     publicMessage, outputPath, requests, nativeBrowserEndpoint } = h
 
-  for (const [suffix, key] of [["config", "config"], ["metadata", "config$"]]) {
-    await check(`background-startup-${suffix}-read-failure-recovers`, async () => {
-      const name = `background-startup-${suffix}-read-failure-recovers`
-      const text = `A one-time ${suffix} read failure during background wakeup must remain a visible error, then the reader's Retry must recover without restarting the extension worker.`
+  for (const [suffix, key, queueSave] of [["config", "config"], ["metadata", "config$"], ["queue-readiness", "config$", true]]) {
+    const name = queueSave ? "background-startup-queue-readiness-rejects-save-and-recovers" : `background-startup-${suffix}-read-failure-recovers`
+    await check(name, async () => {
+      const text = queueSave
+        ? "A queue readiness failure during background startup must reject a settings save before persistence, then the next independent save and paragraph gesture must recover in the same worker."
+        : `A one-time ${suffix} read failure during background wakeup must remain a visible error, then the reader's Retry must recover without restarting the extension worker.`
       await prepareHost(name, `<p id="background-retry-source">${text}</p>`)
       await inContentWorld(`(${observeTranslationReplies.toString()})()`)
+      let settings
+      let restoreStored
+      let queueRecovered = false
+      if (queueSave) {
+        restoreStored = await (await extensionWorker()).evaluate(async () => globalThis.chrome.storage.local.get(["config", "config$"]))
+        await h.configure({ uiLocale: "en" })
+      }
       const versions = new Map()
+      const versionEvents = []
       const updateVersions = ({ versions: updates }) => {
-        for (const version of updates)
+        for (const version of updates) {
           versions.set(version.versionId, version)
+          versionEvents.push({ scriptURL: version.scriptURL, versionId: version.versionId, runningStatus: version.runningStatus })
+        }
       }
       cdp.on("ServiceWorker.workerVersionUpdated", updateVersions)
       await cdp.send("ServiceWorker.disable")
@@ -223,23 +246,103 @@ export async function runBackgroundRecoveryCases(h) {
         const oldVersion = currentVersion()
         evidence.events.push({ phase: "native-worker-stop-requested", versionId: oldVersion.versionId })
         await cdp.send("ServiceWorker.stopWorker", { versionId: oldVersion.versionId })
-        await until(() => versions.get(oldVersion.versionId)?.runningStatus === "stopped", "worker actually stopped before the paragraph gesture")
+        await until(() => versions.get(oldVersion.versionId)?.runningStatus === "stopped", "worker actually stopped before the public wakeup entry")
         const requestStart = requests.length
-        await nodeGesture(page, "#background-retry-source")
+        let fetchWakeup
+        if (queueSave) {
+          fetchWakeup = publicMessage("backgroundFetch", { url: `${h.origin}/audit-${name}-wakeup`, method: "GET", credentials: "omit" })
+          // Wait for the shared pre-entrypoint hook before awaiting its reply.
+          void fetchWakeup.catch(() => {})
+        }
+        else {
+          await nodeGesture(page, "#background-retry-source")
+        }
         await Promise.race([ready, new Promise((resolve, reject) => {
           const timer = setTimeout(() => reject(new Error("New cold worker did not expose a pre-entrypoint storage boundary")), 10000)
           void ready.finally(() => clearTimeout(timer)).catch(() => {})
         })])
-        await until(async () => await page.locator("#background-retry-source .vibe-reading-translation-error-container").count() === 1, "one-time background initialization failure has real paragraph Retry controls")
+        if (queueSave) {
+          const response = await fetchWakeup
+          assert.equal(response.status, 200, "a genuine non-queue background fetch must wake the worker successfully")
+          evidence.wakeup = { type: "backgroundFetch", method: "GET", status: response.status }
+        }
+        if (!queueSave)
+          await until(async () => await page.locator("#background-retry-source .vibe-reading-translation-error-container").count() === 1, "one-time background initialization failure has real paragraph Retry controls")
         const worker = await extensionWorker()
         const readBoundary = () => worker.evaluate(() => ({
           calls: globalThis.__E2E_NATIVE_STORAGE__.calls,
           plans: globalThis.__E2E_NATIVE_STORAGE__.plans,
           held: globalThis.__E2E_NATIVE_STORAGE__.held.map(entry => ({ label: entry.label })),
         }))
+        await until(() => worker.evaluate(value => globalThis.__E2E_NATIVE_STORAGE__.calls.some(call => call.label === value && call.settled), name), "the single native startup storage fault has completed")
         evidence.afterFailure = await readBoundary()
         assert.equal(evidence.afterFailure.calls.filter(call => call.label === name && call.forwarded && call.settled).length, 1, "exactly one real initialization read must fail at the native reply boundary")
         assert.equal(evidence.afterFailure.plans.length, 0, "the one-shot external fault is already withdrawn before Retry")
+        if (queueSave) {
+          await until(() => currentVersion(), "the fetched worker is running before the settings recovery flow")
+          const recoveredVersionId = currentVersion().versionId
+          const recoveryEventsStart = versionEvents.length
+          const readStored = () => worker.evaluate(async () => globalThis.chrome.storage.local.get(["config", "config$"]))
+          settings = await h.context.newPage()
+          await settings.addInitScript(installStorageBoundary)
+          await settings.addInitScript(observeTranslationReplies)
+          await settings.goto(`chrome-extension://${extensionId}/options.html#/translation`)
+          await settings.bringToFront()
+          const input = settings.locator("#translate-capacity")
+          await until(() => input.isVisible(), "the real options request-capacity control is mounted")
+          await until(() => settings.evaluate(() => {
+            const calls = globalThis.__E2E_NATIVE_STORAGE__.calls.filter(call => call.keys.includes("config"))
+            return calls.length >= 2 && calls.every(call => call.forwarded && call.settled)
+          }), "native options bootstrap and hydration finish before the settings gesture")
+          const initial = await readStored()
+          const nextMode = initial.config.translate.mode === "translationOnly" ? "bilingual" : "translationOnly"
+          await settings.locator("#translation-mode").getByRole("combobox").click()
+          await settings.getByRole("option", { name: nextMode === "translationOnly" ? "Translation Only" : "Bilingual", exact: true }).click()
+          await until(() => settings.evaluate(value => globalThis.__E2E_BACKGROUND_RECOVERY_REPLIES__.some(reply => reply.type === "saveConfiguration" && reply.mode === value && reply.savedMode === value && !reply.error), nextMode), "a real non-queue mode save recovers configuration initialization")
+          // The initialization retry can repair metadata. Capture only after
+          // the real mode save succeeds, isolating queue readiness atomicity.
+          evidence.beforeQueueSave = await readStored()
+          evidence.modeRecoveryReplies = await settings.evaluate(() => globalThis.__E2E_BACKGROUND_RECOVERY_REPLIES__)
+          assert.deepEqual(evidence.modeRecoveryReplies.find(reply => reply.mode === nextMode).queueFields, [], "the recovery mode save must not request any queue change")
+          assert.equal(evidence.beforeQueueSave.config.translate.mode, nextMode, "configuration initialization must already be healthy before the queue save")
+          const failedCapacity = evidence.beforeQueueSave.config.translate.requestQueueConfig.capacity + 1
+          const recoveredCapacity = failedCapacity + 1
+          await input.fill(String(failedCapacity))
+          await until(() => settings.evaluate(value => globalThis.__E2E_BACKGROUND_RECOVERY_REPLIES__.some(reply => reply.type === "saveConfiguration" && reply.capacity === value && reply.error), failedCapacity), "the actual queue setting save receives the original rejected startup cohort")
+          await until(async () => await settings.locator("[data-sonner-toast][data-type=error]").count() > 0, "failed queue readiness gives visible settings feedback")
+          await until(async () => await input.inputValue() === String(evidence.beforeQueueSave.config.translate.requestQueueConfig.capacity), "the failed queue setting rolls back to its real confirmed value")
+          evidence.failedQueueSave = {
+            stored: await readStored(), displayedCapacity: await input.inputValue(),
+            replies: await settings.evaluate(() => globalThis.__E2E_BACKGROUND_RECOVERY_REPLIES__),
+            nativeCalls: (await readBoundary()).calls,
+          }
+          await settings.screenshot({ path: path.join(outputPath, `${name}-failed-save.png`) })
+          const failedReply = evidence.failedQueueSave.replies.find(reply => reply.capacity === failedCapacity)
+          assert.equal(failedReply.error, "E2E storage boundary unavailable", "the first queue save must expose the original startup storage failure unchanged")
+          assert.deepEqual(evidence.failedQueueSave.stored.config, evidence.beforeQueueSave.config, "queue readiness failure must leave primary configuration unchanged")
+          assert.deepEqual(evidence.failedQueueSave.stored.config$, evidence.beforeQueueSave.config$, "queue readiness failure must leave metadata unchanged")
+          assert.equal(requests.slice(requestStart).filter(request => request.kind === "translation" && request.input.includes(text)).length, 0, "neither the fetch wakeup nor the failed settings save may translate the source")
+          await input.fill(String(recoveredCapacity))
+          await until(() => settings.evaluate(value => globalThis.__E2E_BACKGROUND_RECOVERY_REPLIES__.some(reply => reply.type === "saveConfiguration" && reply.capacity === value && reply.savedCapacity === value && !reply.error), recoveredCapacity), "the next independent queue save obtains a genuine success reply")
+          queueRecovered = true
+          evidence.recoveredQueueSave = {
+            stored: await readStored(), displayedCapacity: await input.inputValue(),
+            replies: await settings.evaluate(() => globalThis.__E2E_BACKGROUND_RECOVERY_REPLIES__),
+            nativeCalls: (await readBoundary()).calls,
+          }
+          assert.equal(evidence.recoveredQueueSave.stored.config.translate.requestQueueConfig.capacity, recoveredCapacity, "the independent save must persist its actual new capacity")
+          assert.equal(evidence.recoveredQueueSave.displayedCapacity, String(recoveredCapacity), "the same settings control remains usable after readiness failure")
+          assert.ok(evidence.recoveredQueueSave.stored.config$.lastModifiedAt > evidence.beforeQueueSave.config$.lastModifiedAt, "the successful independent queue save must advance actual metadata")
+          await nodeGesture(page, "#background-retry-source")
+          await until(() => hasTranslation(page, text), "a real paragraph gesture translates after the same-worker settings recovery")
+          evidence.recoveredHTTP = requests.slice(requestStart).filter(request => request.kind === "translation" && request.input.includes(text))
+          assert.equal(evidence.recoveredHTTP.length, 1, "the recovery gesture must reach the actual provider exactly once")
+          assert.equal(evidence.recoveredHTTP[0].status, 200, "the recovery must produce a successful actual HTTP translation")
+          assert.equal(currentVersion()?.versionId, recoveredVersionId, "settings and paragraph recovery must retain the same worker version")
+          assert.equal(versionEvents.slice(recoveryEventsStart).some(version => version.scriptURL === workerURL && version.runningStatus !== "running"), false, "the worker must not stop or restart during settings and gesture recovery")
+          await page.screenshot({ path: path.join(outputPath, `${name}-recovered.png`) })
+          return
+        }
         assert.equal(await publicMessage("getEnablePageTranslationFromContentScript"), false, "failed initialization must not manufacture an enabled page session")
         assert.equal(requests.slice(requestStart).filter(request => request.kind === "translation" && request.input.includes(text)).length, 0, "failed initialization must not contact the provider")
         await page.screenshot({ path: path.join(outputPath, `${name}-first-error.png`) })
@@ -268,7 +371,17 @@ export async function runBackgroundRecoveryCases(h) {
       }
       finally {
         evidence.finalReplies = await inContentWorld("globalThis.__E2E_BACKGROUND_RECOVERY_REPLIES__").catch(error => ({ unavailable: error.message }))
-        await writeFile(path.join(outputPath, `${name}.json`), JSON.stringify(evidence, null, 2))
+        evidence.workerVersionTransitions = versionEvents.filter(version => version.scriptURL === workerURL)
+        await writeFile(path.join(outputPath, `${name}.json`), JSON.stringify(evidence, (key, value) => key === "apiKey" ? undefined : value, 2))
+        if (settings && !settings.isClosed())
+          await settings.close()
+        if (restoreStored) {
+          await (await extensionWorker()).evaluate(value => globalThis.chrome.storage.local.set(value), restoreStored)
+          if (queueRecovered) {
+            await publicMessage("setTranslateRequestQueueConfig", restoreStored.config.translate.requestQueueConfig)
+            await publicMessage("setTranslateBatchQueueConfig", restoreStored.config.translate.batchQueueConfig)
+          }
+        }
         await root.send("Target.setAutoAttach", { autoAttach: false, waitForDebuggerOnStart: false, flatten: true })
         root.off("Target.attachedToTarget", attached)
         root.off("Debugger.paused", paused)

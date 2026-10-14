@@ -68,21 +68,25 @@ function observeSettingsMessages() {
     const message = args.find(value => value && typeof value === "object" && typeof value.type === "string")
     const entry = { type: message?.type, enabled: message?.data?.enabled, settled: false }
     state.calls.push(entry)
+    const received = (reply) => {
+      entry.settled = true
+      entry.error = reply?.err?.message
+      entry.savedQueues = reply?.res?.translate && {
+        requestQueueConfig: reply.res.translate.requestQueueConfig,
+        batchQueueConfig: reply.res.translate.batchQueueConfig,
+      }
+      return reply
+    }
     const callback = typeof args.at(-1) === "function" ? args.at(-1) : null
     if (callback) {
       const forwarded = [...args]
       forwarded[forwarded.length - 1] = (...values) => {
-        entry.settled = true
-        entry.error = values[0]?.err?.message
+        received(values[0])
         return callback(...values)
       }
       return send(...forwarded)
     }
-    return send(...args).then((response) => {
-      entry.settled = true
-      entry.error = response?.err?.message
-      return response
-    }, (error) => {
+    return send(...args).then(received, (error) => {
       entry.settled = true
       entry.error = error.message
       throw error
@@ -244,9 +248,10 @@ export async function runSettingsBoundaryCases(h) {
         await until(async () => await worker.evaluate(async ({ section, property, expected }) =>
           (await globalThis.chrome.storage.local.get("config")).config.translate[section][property] === expected,
         { section: kind.section, property: kind.property, expected: value }), "next queue settings save succeeded")
-        await until(async () => await ui.evaluate(type =>
-          globalThis.__E2E_SETTINGS_MESSAGES__.calls.some(call => call.type === type && call.settled && !call.error), kind.message),
-        "the persisted queue change was acknowledged by the real background")
+        await until(async () => await ui.evaluate(({ section, property, expected }) =>
+          globalThis.__E2E_SETTINGS_MESSAGES__.calls.some(call => call.type === "saveConfiguration" && call.settled && !call.error && call.savedQueues?.[section]?.[property] === expected),
+        { section: kind.section, property: kind.property, expected: value }),
+        "the actual background save acknowledges the committed queue setting")
         assert.equal(await ui.locator(`#${kind.id}`).inputValue(), String(value),
           "successful persisted queue setting is displayed")
       }

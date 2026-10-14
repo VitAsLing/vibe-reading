@@ -1,7 +1,7 @@
 import type { AllProviderTypes, APIProviderTypes, LLMProviderModels, ProviderConfig, ProvidersConfig } from "@/types/config/provider"
 import type { Theme } from "@/types/config/theme"
 import customProviderLogo from "@/assets/providers/custom-provider.svg?url&no-inline"
-import { API_PROVIDER_TYPES, CUSTOM_LLM_PROVIDER_TYPES, NON_CUSTOM_LLM_PROVIDER_TYPES, TRANSLATE_PROVIDER_TYPES } from "@/types/config/provider"
+import { API_PROVIDER_TYPES, CUSTOM_LLM_PROVIDER_TYPES, NON_CUSTOM_LLM_PROVIDER_TYPES } from "@/types/config/provider"
 import { pick } from "@/types/utils"
 import { getLobeIconsCDNUrlFn } from "../logo"
 
@@ -72,13 +72,6 @@ export const DEFAULT_PROVIDER_CONFIG_LIST: ProvidersConfig = [
   DEFAULT_PROVIDER_CONFIG.deepseek,
   DEFAULT_PROVIDER_CONFIG["openai-compatible"],
 ]
-
-export const TRANSLATE_PROVIDER_ITEMS = pick(
-  PROVIDER_ITEMS,
-  TRANSLATE_PROVIDER_TYPES,
-)
-
-export const LLM_PROVIDER_ITEMS = TRANSLATE_PROVIDER_ITEMS
 
 export const API_PROVIDER_ITEMS = pick(
   PROVIDER_ITEMS,

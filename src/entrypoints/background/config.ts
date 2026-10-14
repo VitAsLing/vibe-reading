@@ -4,9 +4,14 @@ import { dequal } from "dequal"
 import { storage } from "#imports"
 import { configSchema } from "@/types/config/config"
 import { initializeConfig } from "@/utils/config/init"
-import { mergeWithArrayOverwrite } from "@/utils/config/merge"
+import { getChangedConfigFields, mergeWithArrayOverwrite } from "@/utils/config/merge"
 import { CONFIG_STORAGE_KEY } from "@/utils/constants/config"
 import { onMessage } from "@/utils/message"
+
+export type ApplyTranslationQueueConfig = (config: {
+  requestQueueConfig?: Partial<Config["translate"]["requestQueueConfig"]>
+  batchQueueConfig?: Partial<Config["translate"]["batchQueueConfig"]>
+}) => void
 
 let configPromise: Promise<void> | null = null
 
@@ -24,7 +29,7 @@ export async function ensureInitializedConfig() {
   return storage.getItem<Config>(`local:${CONFIG_STORAGE_KEY}`)
 }
 
-export function setupConfigurationMessages(): void {
+export function setupConfigurationMessages(prepareQueueConfigApply: () => Promise<ApplyTranslationQueueConfig>): void {
   // A document-local queue cannot serialize writes from popup and options.
   // Register immediately so a save can also wake a cold background worker.
   let writeQueue: Promise<void> = Promise.resolve()
@@ -46,14 +51,24 @@ export function setupConfigurationMessages(): void {
       if (Object.keys(patch).length === 0)
         return current
       const next = configSchema.parse(mergeWithArrayOverwrite(current, patch))
+      const changedTranslateConfig = getChangedConfigFields(current, next).translate
+      const queueConfigChanges = {
+        requestQueueConfig: changedTranslateConfig?.requestQueueConfig,
+        batchQueueConfig: changedTranslateConfig?.batchQueueConfig,
+      }
+      // Await readiness before persistence; the validated diff applies synchronously below.
+      const applyQueueConfig = queueConfigChanges.requestQueueConfig !== undefined || queueConfigChanges.batchQueueConfig !== undefined
+        ? await prepareQueueConfigApply()
+        : undefined
       const meta = await storage.getMeta<ConfigMeta>(`local:${CONFIG_STORAGE_KEY}`)
       // WXT storage 1.2.8 uses `${key}$` for metadata. Both items share one
-      // native local.set, so a failed save cannot commit only the value and
-      // leave callers skipping the live-queue update after a metadata error.
+      // native local.set; only a successful commit updates the live queues.
       await storage.setItems([
         { key: `local:${CONFIG_STORAGE_KEY}`, value: next },
         { key: `local:${CONFIG_STORAGE_KEY}$`, value: { ...meta, lastModifiedAt: Date.now() } },
       ])
+      if (applyQueueConfig)
+        applyQueueConfig(queueConfigChanges)
       return next
     })
     // The caller receives the original failure; subsequent independent saves

@@ -77,7 +77,6 @@ export async function runConfigAtomicCases(h) {
       // Both the negative snapshot and the successful retry are asserted below.
       await input.fill(String(recoveredValue))
       await h.until(() => ui.evaluate(value => globalThis.__E2E_ATOMIC_CONFIG__.calls.some(call => call.type === "saveConfiguration" && call.settled && !call.error && call.savedCapacity === value), recoveredValue), "the next independent configuration save receives an actual success reply")
-      await h.until(() => ui.evaluate(value => globalThis.__E2E_ATOMIC_CONFIG__.calls.some(call => call.type === "setTranslateRequestQueueConfig" && call.capacity === value && call.settled && !call.error), recoveredValue), "the successfully saved capacity is acknowledged by the real live request queue")
       const recovered = {
         stored: await readStored(),
         displayedCapacity: await input.inputValue(),

@@ -62,20 +62,6 @@ export async function detectLanguageWithSource(
   return { code: "und", source: "fallback" }
 }
 
-/**
- * Detect language of text using LLM.
- * @param text - Text to detect language for
- * @param options - Detection options
- * @returns Detected language code or null if detection failed
- */
-export async function detectLanguage(
-  text: string,
-  options?: DetectLanguageOptions,
-): Promise<LangCodeISO6393 | null> {
-  const result = await detectLanguageWithSource(text, options)
-  return result.code === "und" ? null : result.code
-}
-
 function selectLanguageDetectionProvider(config: Config): LLMProviderConfig | undefined {
   const translateProvider = config.providersConfig.find(provider => provider.id === config.translate.providerId)
   if (translateProvider?.enabled && isLLMProviderConfig(translateProvider)) {

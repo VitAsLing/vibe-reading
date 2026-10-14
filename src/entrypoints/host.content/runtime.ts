@@ -103,6 +103,7 @@ export async function bootstrapHostContent(ctx: ContentScriptContext, initialCon
     }
 
     // For late-loading iframes: check if translation is already enabled for this tab.
+    const initialSessionVersion = manager.currentSessionVersion
     let translationEnabled = false
     try {
       translationEnabled = await sendMessage("getEnablePageTranslationFromContentScript", undefined)
@@ -112,7 +113,7 @@ export async function bootstrapHostContent(ctx: ContentScriptContext, initialCon
     }
     if (!isContentScriptActive())
       return
-    if (translationEnabled) {
+    if (translationEnabled && manager.currentSessionVersion === initialSessionVersion) {
       runContentScriptTask(() => manager.start(), "Failed to start page translation:")
     }
 
