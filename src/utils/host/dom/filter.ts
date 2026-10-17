@@ -2,10 +2,8 @@ import type { Config } from "@/types/config/config"
 import type { TransNode } from "@/types/dom"
 import {
   BLOCK_ATTRIBUTE,
-  BLOCK_CONTENT_CLASS,
   CONTENT_WRAPPER_CLASS,
   INLINE_ATTRIBUTE,
-  INLINE_CONTENT_CLASS,
   NOTRANSLATE_CLASS,
 } from "@/utils/constants/dom-labels"
 import { CUSTOM_DONT_WALK_INTO_ELEMENT_SELECTOR_MAP, CUSTOM_FORCE_BLOCK_TRANSLATION_SELECTOR_MAP, DONT_WALK_AND_TRANSLATE_TAGS, DONT_WALK_BUT_TRANSLATE_TAGS, FORCE_BLOCK_TAGS, MAIN_CONTENT_IGNORE_TAGS } from "@/utils/constants/dom-rules"
@@ -200,13 +198,6 @@ export function isTransNode(node: Node): node is TransNode {
 
 export function isTranslatedWrapperNode(node: Node) {
   return isHTMLElement(node) && node.classList.contains(CONTENT_WRAPPER_CLASS)
-}
-
-/**
- * Check if a node is translated content (block or inline)
- */
-export function isTranslatedContentNode(node: Node): boolean {
-  return isHTMLElement(node) && (node.classList.contains(BLOCK_CONTENT_CLASS) || node.classList.contains(INLINE_CONTENT_CLASS))
 }
 
 /**
