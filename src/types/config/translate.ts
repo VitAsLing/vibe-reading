@@ -18,7 +18,6 @@ export const TRANSLATION_MODES = ["bilingual", "translationOnly"] as const
 export const translationModeSchema = z.enum(TRANSLATION_MODES)
 
 export const pageTranslateRangeSchema = z.enum(["main", "all"])
-export type PageTranslateRange = z.infer<typeof pageTranslateRangeSchema>
 
 export const preloadConfigSchema = z.object({
   margin: z.number().min(MIN_PRELOAD_MARGIN).max(MAX_PRELOAD_MARGIN),
@@ -106,5 +105,4 @@ export const translateConfigSchema = z.object({
 
 export type RequestQueueConfig = z.infer<typeof requestQueueConfigSchema>
 export type BatchQueueConfig = z.infer<typeof batchQueueConfigSchema>
-export type TranslateConfig = z.infer<typeof translateConfigSchema>
 export type TranslationMode = z.infer<typeof translationModeSchema>

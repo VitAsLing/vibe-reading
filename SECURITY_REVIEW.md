@@ -15,7 +15,6 @@ Other network-capable paths found during review:
 - `src/entrypoints/background/proxy-fetch.ts` exposes a background `fetch` helper to extension contexts.
 - `src/entrypoints/options/pages/api-providers/provider-config-form/components/model-suggestion-button.tsx` fetches `${baseURL}/models` for a user-configured provider when the user asks to fetch model suggestions.
 - `src/utils/logo.ts` builds provider icon URLs under `https://registry.npmmirror.com/@lobehub/icons-static-webp/1.65.0/files/...`.
-- `src/utils/iconify/setup-background-fetch.ts` configures Iconify fetches through the background fetch helper for content-script UI icons.
 - `scripts/scrape-ai-sdk-provider-models.ts` uses `https://ai-sdk.dev` in a developer script, not in normal extension runtime.
 
 Hardcoded network endpoints or external URLs found in runtime or project configuration:
@@ -83,21 +82,12 @@ No `externally_connectable` manifest entry, `runtime.onMessageExternal`, `window
 
 Packaged artifacts are produced by GitHub Actions from this fork.
 
-The build workflow uses Node.js 22, Corepack, pnpm lockfile enforcement, existing project checks, `pnpm build`, and `pnpm zip:all`. Zip files from `.output/**/*.zip` are uploaded as workflow artifacts. For tags matching `v*`, the release job creates a GitHub Release and attaches the generated zip files without requiring external secrets.
+The Build workflow uses Node.js 24, Corepack, pnpm lockfile enforcement, existing project checks, and `pnpm zip:all` to build and package Chrome, Edge, Firefox, and source archives. It validates package versions and runs loaded-extension E2E before uploading the packages and acceptance artifacts separately.
 
-## Manual review checklist
+Pushes to `main` create a release tag matching `package.json`; an existing tag fails the release rather than replacing its artifacts. Tag-triggered builds also validate that the tag matches the package version. A separate manual Release Extension workflow can rebuild assets for an existing tag.
 
-- [ ] Inspect `package.json` scripts: `pnpm lint`, `pnpm type-check`, `pnpm test`, `pnpm build`, `pnpm zip:all`.
-- [ ] Inspect `wxt.config.ts` for manifest permissions, host permissions, web-accessible resources, and browser-specific settings.
-- [ ] Search for network calls: `rg -n "fetch\\(|XMLHttpRequest|WebSocket|EventSource|navigator\\.sendBeacon|https?://" . -g '!node_modules' -g '!pnpm-lock.yaml'`.
-- [ ] Search for telemetry terms: `rg -n "analytics|telemetry|sentry|plausible|segment|amplitude|gtag|mixpanel" . -g '!node_modules'`.
-- [ ] Search for external message bridges: `rg -n "externally_connectable|onMessageExternal|postMessage|window\\.addEventListener\\(['\\\"]message" . -g '!node_modules'`.
-- [ ] Inspect `src/utils/message.ts` for the internal message protocol.
-- [ ] Inspect `src/entrypoints/background/index.ts` and background modules for registered handlers.
-- [ ] Inspect `src/utils/config/init.ts`, `src/utils/config/storage.ts`, and provider config schemas for API key storage.
-- [ ] Run `pnpm install --frozen-lockfile`.
-- [ ] Run `pnpm lint`.
-- [ ] Run `pnpm type-check`.
-- [ ] Run `pnpm test`.
-- [ ] Run `pnpm build`.
-- [ ] Run `pnpm zip:all`.
+## Reviewing changes
+
+Use the [development and acceptance instructions](README.md#development) for current commands, scenarios, and evidence limits. Review `wxt.config.ts`, `src/utils/message.ts`, background handlers, and provider/config storage paths when permissions, network behavior, messaging, or secrets handling change.
+
+CI uses disposable browser profiles and local model fixtures. Its browser results establish extension behavior, not the reliability of a production model service or the safety of translating a sensitive page.

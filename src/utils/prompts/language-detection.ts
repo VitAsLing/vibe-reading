@@ -26,8 +26,6 @@ export const languageDetectionOutputSchema = z.object({
   code: z.union([langCodeISO6393Schema, z.literal("und")]),
 })
 
-export type LanguageDetectionOutput = z.infer<typeof languageDetectionOutputSchema>
-
 export function getLanguageDetectionSystemPrompt(): string {
   return `You are a language detection assistant. Your task is to identify the language of text and to give its ISO 639-3 language code.
 

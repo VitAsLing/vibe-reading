@@ -1,6 +1,6 @@
 # Vibe Reading
 
-Vibe Reading 是一个用于网页阅读、翻译和语言学习的浏览器扩展。配置保存在本地，AI 或翻译能力由用户自行配置的服务商和 API Key 提供。
+Vibe Reading 是一个用于网页阅读和翻译的浏览器扩展。配置保存在本地，AI 或翻译能力由用户自行配置的服务商和 API Key 提供。
 
 本扩展不依赖项目自建后端。需要网络服务的功能，例如 AI 翻译，会直接使用用户配置的服务商端点。
 
@@ -32,25 +32,28 @@ Vibe Reading 刻意保持小而专注：**只有阅读功能**。
 ```bash
 pnpm install
 pnpm lint
-pnpm test
 pnpm type-check
 pnpm build
 ```
 
-pre-push hook 直接通过 pnpm 运行 lint、类型检查和测试，不使用任务缓存。
+pre-push hook 运行 lint 和类型检查。既有单元测试仍可通过 `pnpm test` 或指定路径的 `pnpm exec vitest run <路径>` 执行。Build 工作流是统一的 PR 验证入口，在 Node.js 24 上执行静态检查、既有测试、浏览器打包和已加载扩展的 E2E。
 
-扩展生命周期 E2E 将生产构建加载到独立 Chromium 配置中，每种模式运行 18 个场景，验证后台唤醒、混合行内/块内容逐个重试、错误组件装载后的重载、动态内容和页面切换、挂起及静默重载、刷新恢复、停止或复用原元素后的迟到成功/失败、新旧请求状态归属、包装节点插入前取消，以及页面语言检测乱序。模型响应使用本地 HTTP 模拟；两个取消场景在浏览器边界延迟真实 `getDetectedCode` 消息或动画帧回调，不 mock 扩展内部函数。不读取常用浏览器配置或生产 API Key。
+扩展生命周期 E2E 将生产构建加载到一次性 Chromium 配置中。Chrome 存储、消息、worker、脚本注入和页面 DOM 都是真实执行；模型响应使用本地 HTTP 模拟，延迟和故障注入放在浏览器或 HTTP 边界。不读取常用浏览器配置或生产 API Key。
 
 ```bash
 pnpm build
 pnpm exec playwright install chromium
 pnpm e2e:extension
 pnpm e2e:extension .output/chrome-mv3 .output/acceptance/translation-only --translation-only
+E2E_NATIVE_VISIBILITY=1 pnpm e2e:extension .output/chrome-mv3 .output/acceptance/native-bilingual
+E2E_NATIVE_VISIBILITY=1 pnpm e2e:extension .output/chrome-mv3 .output/acceptance/native-translation-only --translation-only
 ```
 
-两种模式串行运行。可将 `E2E_BROWSER_EXECUTABLE` 设置为已有 Chrome for Testing 可执行文件路径，验证指定浏览器版本；未设置时使用 Playwright Chromium。Build 工作流在打包后使用生产 Chrome 构建运行两种模式，验收工件与发布 ZIP 分开上传，场景失败时也保留工件。
+四组串行运行，覆盖双语和仅译文模式，以及原生前台、后台和冻结页面的重载、失败恢复、并发保存与迟到确认。可用 `--case=<名称>` 运行单个场景；原生场景需保留 `E2E_NATIVE_VISIBILITY=1`。完整覆盖范围和环境说明见 [英文开发文档](README.md#development)。
 
-Playwright 默认模拟页面聚焦，本套件不证明原生标签页的 hidden/visible 切换，也不证明已登录 X 页面或真实付费模型服务的行为。
+可将 `E2E_BROWSER_EXECUTABLE` 设置为已有 Chrome for Testing 可执行文件路径；未设置时使用 Playwright Chromium。Build 工作流在打包后运行四组验收，工件与发布 ZIP 分开上传，场景失败时也保留工件。
+
+默认两组使用 Playwright 的页面聚焦模拟，原生两组则直接验证 hidden/visible、冻结和重载。四组均不证明已登录 X 页面或真实模型服务的行为。
 
 默认工件位于 `.output/acceptance/extension-lifecycle`，包括实际浏览器版本、启动前捕获的提交与工作区状态、源码/验收脚本/构建摘要、步骤与断言、HTTP 和公开消息记录、worker 停止/重启顺序、Chrome 扩展错误列表、截图和 `trace.zip`。可通过 `pnpm exec playwright show-trace <trace.zip 路径>` 检查执行过程。
 

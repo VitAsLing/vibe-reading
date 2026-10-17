@@ -2,8 +2,6 @@ import type {
   APIProviderTypes,
   CustomLLMProviderTypes,
   LLMProviderTypes,
-  NonCustomLLMProviderTypes,
-  TranslateProviderTypes,
 } from "./constants"
 
 import { z } from "zod"
@@ -102,8 +100,6 @@ export type ProvidersConfig = z.infer<typeof providersConfigSchema>
 export type ProviderConfig = ProvidersConfig[number]
 export type APIProviderConfig = Extract<ProviderConfig, { provider: APIProviderTypes }>
 export type LLMProviderConfig = Extract<ProviderConfig, { provider: LLMProviderTypes }>
-export type TranslateProviderConfig = Extract<ProviderConfig, { provider: TranslateProviderTypes }>
-export type NonCustomLLMProviderConfig = Extract<ProviderConfig, { provider: NonCustomLLMProviderTypes }>
 export type CustomLLMProviderConfig = Extract<ProviderConfig, { provider: CustomLLMProviderTypes }>
 
 /* ──────────────────────────────
